@@ -5,11 +5,10 @@ from time import perf_counter
 from typing import cast
 
 from google.adk.tools import ToolContext
-from pydantic import BaseModel, Field
 from safe_result import ok
 
 from models.llm import LlmConfig
-from models.confidence import ConfidenceMetrics, ConfidenceLevel, calibrate_confidence
+from models.confidence import ConfidenceLevel, ConfidenceMetrics, calibrate_confidence
 from modules.config.llm import LlmProfile, get_llm_config
 from modules.error.common import (
     RetryableModelOutputError,
@@ -18,23 +17,21 @@ from modules.error.common import (
 )
 from modules.extractor.html import read_page_content
 from modules.logging import logging
+from modules.matches.schemas import ExtractJDRequirementOutputSchema
+from modules.matches.state import LAST_REQUIREMENTS_KEY
 from modules.tools.prompts import (
     EXTRACT_JD_SYSTEM_PROMPT,
     EXTRACT_JD_USER_PROMPT_TEMPLATE,
 )
-from modules.utils import generate_structured_output
+from modules.tools.structured_llm import generate_tool_structured_output
 from modules.utils.text import validate_url
 from modules.utils.trace import increment_llm_calls
 
-
-class ExtractJDRequirementOutputSchema(BaseModel):
-    required_skills: list[str] = Field(default_factory=list)
-    nice_to_have_skills: list[str] = Field(default_factory=list)
-    seniority_level: str = "unknown"
-    domain: str = "unknown"
-    responsibilities: list[str] = Field(default_factory=list)
-    confidence_score: int = 0
-    confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
+__all__ = [
+    "ConfidenceLevel",
+    "ExtractJDRequirementOutputSchema",
+    "extract_jd_requirements",
+]
 
 
 def _estimate_extraction_confidence(
@@ -60,11 +57,11 @@ def _estimate_extraction_confidence(
 
 
 async def extract_jd_requirements(
-    url_or_text: str | dict[str, object],
+    url_or_text: str,
     *,
     context: ToolContext,
 ) -> ExtractJDRequirementOutputSchema:
-    """Extract job requirements from a given URL or text input."""
+    """Extract job requirements from a URL string or raw job-description text."""
     started_at = perf_counter()
     resolved_url_or_text = _coerce_url_or_text(url_or_text)
     logging.info(
@@ -126,7 +123,7 @@ async def extract_jd_requirements(
             "confidence": calibrated_confidence.confidence,
         }
     )
-    context.state["last_requirements"] = result_payload.model_dump()
+    context.state[LAST_REQUIREMENTS_KEY] = result_payload.model_dump()
     elapsed_ms = int((perf_counter() - started_at) * 1000)
     logging.info(
         "extract_jd_requirements success | required=%d nice_to_have=%d responsibilities=%d confidence=%s confidence_score=%d elapsed_ms=%d",
@@ -201,10 +198,9 @@ async def _parse_requirements_from_text_llm(
     """Use an LLM to parse JD text into the required structured schema."""
     system_prompt = EXTRACT_JD_SYSTEM_PROMPT
     user_prompt = EXTRACT_JD_USER_PROMPT_TEMPLATE.render(job_description=text)
-    result = await generate_structured_output(
+    return await generate_tool_structured_output(
         llm_config=llm_config,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         schema=ExtractJDRequirementOutputSchema,
     )
-    return result.unwrap()

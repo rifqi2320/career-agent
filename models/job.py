@@ -97,6 +97,11 @@ class MatchJob(Base):
     result: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     agent_trace: Mapped[dict[str, object] | None] = mapped_column(JSONB, nullable=True)
     error_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+    next_attempt_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+        index=True,
+    )
     processing_started_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True),
         nullable=True,

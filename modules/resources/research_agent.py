@@ -44,26 +44,7 @@ async def run_resource_research_agent(
 ) -> ResearchSkillResourcesOutputSchema:
     """Run the internal ADK resource researcher and return validated output."""
     research_config = load_resource_research_config()
-    model = build_required_llm(
-        get_llm_config(profile=LlmProfile.MAIN),
-        purpose="resource research",
-    )
-
-    agent = Agent(
-        name=RESOURCE_RESEARCH_AGENT_NAME,
-        description=(
-            "Researches and ranks learning resources from curated DB and GitHub."
-        ),
-        model=model,
-        instruction=RESOURCE_RESEARCH_AGENT_INSTRUCTION,
-        tools=[
-            query_skill_resource_db,
-            query_github_learning_resources,
-            query_github_repository_readme,
-        ],
-        output_schema=ResearchSkillResourcesOutputSchema,
-        output_key=RESOURCE_RESEARCH_OUTPUT_KEY,
-    )
+    agent = build_resource_research_agent()
     session_service = InMemorySessionService()
     session = session_service.create_session_sync(
         app_name=RESOURCE_RESEARCH_APP_NAME,
@@ -76,17 +57,9 @@ async def run_resource_research_agent(
         session_service=session_service,
     )
 
-    message = types.Content(
-        role="user",
-        parts=[
-            types.Part.from_text(
-                text=(
-                    f"Target skill: {skill_name}\n"
-                    f"Seniority context: {seniority_context}\n"
-                    "Research and return the best resources."
-                )
-            )
-        ],
+    message = _build_resource_research_message(
+        skill_name=skill_name,
+        seniority_context=seniority_context,
     )
 
     try:
@@ -120,6 +93,48 @@ async def run_resource_research_agent(
         payload={"skill_name": skill_name, "selected_resources": len(output.resources)},
     )
     return output
+
+
+def build_resource_research_agent() -> Agent:
+    """Build the internal ADK resource research agent."""
+    model = build_required_llm(
+        get_llm_config(profile=LlmProfile.MAIN),
+        purpose="resource research",
+    )
+    return Agent(
+        name=RESOURCE_RESEARCH_AGENT_NAME,
+        description=(
+            "Researches and ranks learning resources from curated DB and GitHub."
+        ),
+        model=model,
+        instruction=RESOURCE_RESEARCH_AGENT_INSTRUCTION,
+        tools=[
+            query_skill_resource_db,
+            query_github_learning_resources,
+            query_github_repository_readme,
+        ],
+        output_schema=ResearchSkillResourcesOutputSchema,
+        output_key=RESOURCE_RESEARCH_OUTPUT_KEY,
+    )
+
+
+def _build_resource_research_message(
+    *,
+    skill_name: str,
+    seniority_context: str,
+) -> types.Content:
+    return types.Content(
+        role="user",
+        parts=[
+            types.Part.from_text(
+                text=(
+                    f"Target skill: {skill_name}\n"
+                    f"Seniority context: {seniority_context}\n"
+                    "Research and return the best resources."
+                )
+            )
+        ],
+    )
 
 
 async def _run_agent_to_final_text(

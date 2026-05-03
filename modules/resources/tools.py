@@ -8,7 +8,7 @@ from modules.resources.github import (
     search_github_learning_resources,
 )
 from modules.resources.repository import list_skill_resources
-from modules.resources.schemas import CandidateResourceSchema, ResourceType
+from modules.resources.service import rows_to_candidate_resources
 
 DB_RESOURCE_LIMIT = 15
 GITHUB_RESOURCE_LIMIT = 15
@@ -31,19 +31,7 @@ def query_skill_resource_db(
             original_error=result.error,
         )
     rows = result.value or []
-    candidates = [
-        CandidateResourceSchema(
-            title=row.title,
-            abstracts=row.abstracts,
-            url=row.url,
-            estimated_hours=row.estimated_hours,
-            type=ResourceType(row.resource_type),
-            skill_name=row.skill_name,
-            seniority_context=row.seniority_context or "unknown",
-            source=row.source,
-        )
-        for row in rows
-    ]
+    candidates = rows_to_candidate_resources(rows)
     return [candidate.model_dump(mode="json") for candidate in candidates]
 
 

@@ -12,15 +12,26 @@ from modules.matches.repository import (
     claim_match_job,
     complete_match_job,
     fail_or_retry_match_job,
+    list_due_pending_match_job_ids,
+    requeue_stale_processing_jobs,
 )
 from modules.task_queue.rabbitmq import consume_match_jobs, publish_match_job
 from modules.candidates.schemas import CandidateProfileInputSchema
+
+RETRY_SCHEDULER_INTERVAL_SECONDS = 10
 
 
 async def main() -> None:
     """Start consuming match jobs from RabbitMQ."""
     logging.info("career match worker starting")
-    await consume_match_jobs(process_job_id)
+    recovered = requeue_stale_processing_jobs()
+    if recovered:
+        logging.warning("recovered stale processing jobs | count=%d", recovered)
+    scheduler = asyncio.create_task(_publish_due_jobs_forever())
+    try:
+        await consume_match_jobs(process_job_id)
+    finally:
+        scheduler.cancel()
 
 
 async def process_job_id(job_id: str) -> None:
@@ -76,19 +87,30 @@ async def _handle_job_failure(
     error: Exception,
     partial_trace: AgentTrace,
 ) -> None:
-    should_retry = fail_or_retry_match_job(
+    retry_decision = fail_or_retry_match_job(
         job_id=claimed_job.job_id,
         error_detail=f"{type(error).__name__}: {error}",
         agent_trace=partial_trace,
     )
     logging.exception(
-        "match job failed | job_id=%s attempt=%d retry=%s",
+        "match job failed | job_id=%s attempt=%d retry=%s delay_seconds=%d",
         claimed_job.job_id,
         claimed_job.attempt,
-        should_retry,
+        retry_decision.should_retry,
+        retry_decision.delay_seconds,
     )
-    if should_retry:
-        await publish_match_job(claimed_job.job_id)
+
+
+async def _publish_due_jobs_forever() -> None:
+    while True:
+        await _publish_due_jobs_once()
+        await asyncio.sleep(RETRY_SCHEDULER_INTERVAL_SECONDS)
+
+
+async def _publish_due_jobs_once() -> None:
+    due_job_ids = list_due_pending_match_job_ids()
+    for job_id in due_job_ids:
+        await publish_match_job(job_id)
 
 
 def _partial_trace(events: list[AgentStreamEvent]) -> AgentTrace:

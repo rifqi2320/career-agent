@@ -3,21 +3,11 @@
 from __future__ import annotations
 
 from typing import Any, Literal
-from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from models.confidence import ConfidenceLevel
 from models.resource_type import ResourceType
-
-
-def _validate_uuid_text(value: str) -> str:
-    """Validate a string UUID while preserving JSON-friendly string output."""
-    try:
-        UUID(value)
-    except ValueError as error:
-        raise ValueError("job_id must be a valid UUID string.") from error
-    return value
 
 
 class MatchDimensionScores(BaseModel):
@@ -99,12 +89,6 @@ class MatchOutput(BaseModel):
     learning_plan: list[LearningPlanItem] = Field(default_factory=list)
     agent_trace: AgentTrace
 
-    @field_validator("job_id")
-    @classmethod
-    def validate_job_id(cls, value: str) -> str:
-        """Require the Part A output job identifier to be a UUID."""
-        return _validate_uuid_text(value)
-
     @field_validator("confidence")
     @classmethod
     def validate_confidence(cls, value: ConfidenceLevel) -> ConfidenceLevel:
@@ -125,9 +109,3 @@ class AgentRunState(BaseModel):
     tool_calls: list[ToolCallTrace] = Field(default_factory=list)
     total_llm_calls: int = Field(default=0, ge=0)
     fallbacks_triggered: int = Field(default=0, ge=0)
-
-    @field_validator("job_id")
-    @classmethod
-    def validate_job_id(cls, value: str) -> str:
-        """Require run state to carry the UUID match job identifier."""
-        return _validate_uuid_text(value)

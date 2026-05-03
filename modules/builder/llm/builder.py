@@ -22,11 +22,10 @@ from modules.error.common import (
 @safe
 def build_llm(config: LlmConfig) -> BaseLlm:
     provider = config.provider or MODEL_PROVIDER_MAP[config.model_name]
-    match provider:
-        case LlmProvider.LITELLM:
-            return _build_litellm_llm(config).unwrap()
-        case LlmProvider.GOOGLE:
-            return _build_google_llm(config).unwrap()
+    if provider is LlmProvider.LITELLM:
+        return _build_litellm_llm(config).unwrap()
+    if provider is LlmProvider.GOOGLE:
+        return _build_google_llm(config).unwrap()
     raise UnknownOptionsError(f"Unrecognized provider: {config.provider!s}")
 
 

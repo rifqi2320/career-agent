@@ -17,11 +17,12 @@ from modules.matches.schemas import (
     ScoreCandidateOutputSchema,
     ScoreDimensionsSchema,
 )
+from modules.matches.state import LAST_REQUIREMENTS_KEY, LAST_SCORE_KEY
 from modules.tools.prompts import (
     SCORE_CANDIDATE_SYSTEM_PROMPT,
     SCORE_CANDIDATE_USER_PROMPT_TEMPLATE,
 )
-from modules.utils import generate_structured_output
+from modules.tools.structured_llm import generate_tool_structured_output
 from modules.utils.trace import increment_llm_calls
 
 __all__ = [
@@ -125,9 +126,9 @@ async def score_candidate_against_requirements(
     )
     if resolved_requirements is None:
         logging.info(
-            "score_candidate_against_requirements loading requirements from context.state['last_requirements']"
+            "score_candidate_against_requirements loading requirements from context state"
         )
-        raw_requirements = context.state.get("last_requirements")
+        raw_requirements = context.state.get(LAST_REQUIREMENTS_KEY)
         if raw_requirements is None:
             raise ToolInputError(
                 "Missing requirements input and `context.state['last_requirements']`."
@@ -176,7 +177,7 @@ async def score_candidate_against_requirements(
             "confidence": confidence.confidence,
         }
     )
-    context.state["last_score"] = result_payload.model_dump()
+    context.state[LAST_SCORE_KEY] = result_payload.model_dump()
     elapsed_ms = int((perf_counter() - started_at) * 1000)
     logging.info(
         "score_candidate_against_requirements success | overall_score=%d confidence=%s confidence_score=%d matched=%d gaps=%d elapsed_ms=%d",
@@ -201,10 +202,9 @@ async def _score_candidate_against_requirements_llm(
         requirements=requirements.model_dump_json(indent=2),
     )
 
-    result = await generate_structured_output(
+    return await generate_tool_structured_output(
         llm_config=llm_config,
         system_prompt=SCORE_CANDIDATE_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         schema=ScoreCandidateOutputSchema,
     )
-    return result.unwrap()

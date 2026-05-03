@@ -20,6 +20,11 @@ Rules:
 - If information is missing, use empty lists and "unknown" for strings.
 - Use only details present in the input text; do not infer unstated items.
 - Normalize each skill to lowercase.
+- Treat bullet items under headings such as "Nice to Have", "Bonus Points If You Have",
+  "Preferred Skills", "Preferred Qualifications", "Good to Have", or "Would Be a Plus"
+  as `nice_to_have_skills`, not `required_skills`.
+- If a nice-to-have bullet names multiple concrete technologies, extract each concrete
+  technology as its own `nice_to_have_skills` item.
 - Normalize near-equivalent wording with these mappings before deduplication:
   - "api design", "api development", "api integration", "apis" -> "apis"
   - "embedding models", "embeddings", "vector databases", "vector db" -> "vector database"

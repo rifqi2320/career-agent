@@ -149,7 +149,7 @@ def test_finalize_match_output_requires_job_id(tool_context: ToolContext) -> Non
         finalize_match_output(context=tool_context)
 
 
-def test_finalize_match_output_rejects_non_uuid_job_id(
+def test_finalize_match_output_accepts_non_uuid_job_id(
     tool_context: ToolContext,
 ) -> None:
     tool_context.state["last_score"] = {
@@ -164,8 +164,38 @@ def test_finalize_match_output_rejects_non_uuid_job_id(
         "gap_skills": [],
     }
 
-    with pytest.raises(ToolInputError, match="job_id"):
-        finalize_match_output(context=tool_context, job_id="R00325310_en")
+    result_payload = finalize_match_output(context=tool_context, job_id="R00325310_en")
+
+    assert result_payload["job_id"] == "R00325310_en"
+
+
+def test_finalize_match_output_accepts_external_job_id_from_agent_call(
+    tool_context: ToolContext,
+) -> None:
+    tool_context.state["last_score"] = {
+        "overall_score": 77,
+        "confidence": "medium",
+        "dimension_scores": {
+            "skills": 70,
+            "experience": 80,
+            "seniority_fit": 75,
+        },
+        "matched_skills": ["python"],
+        "gap_skills": [],
+    }
+
+    result_payload = finalize_match_output(
+        context=tool_context,
+        job_id="R00325685_en",
+        reasoning=(
+            "The candidate is highly skilled in modern AI/Data engineering "
+            "but has a significant gap in the specific technology stack."
+        ),
+        max_learning_plan_items=3,
+    )
+
+    assert result_payload["job_id"] == "R00325685_en"
+    assert tool_context.state["job_id"] == "R00325685_en"
 
 
 def test_finalize_match_output_requires_prioritization_when_gaps_exist(

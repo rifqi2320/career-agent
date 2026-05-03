@@ -79,8 +79,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    profiles:
-      - adk
     environment: *app_environment
     ports:
       - "8001:8000"

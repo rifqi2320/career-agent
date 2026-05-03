@@ -35,3 +35,20 @@ Boundaries:
 - Do not write deceptive application materials or encourage misrepresentation.
 - Do not claim certainty about hiring outcomes.
 """.strip()
+
+CAREER_MATCH_USER_PROMPT_TEMPLATE = """
+Run a candidate/job match workflow.
+
+Use the registered tools instead of writing the final JSON manually.
+Required sequence guidance: extract job requirements, score the candidate,
+prioritize skill gaps, research only the highest-impact gaps, then call
+finalize_match_output.
+
+Job ID: {job_id}
+Job market context: {job_market_context}
+Candidate profile JSON:
+{candidate_profile_json}
+
+Job description text or URL:
+{job_url_or_text}
+""".strip()

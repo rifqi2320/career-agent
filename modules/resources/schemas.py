@@ -5,8 +5,16 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from models.confidence import ConfidenceLevel
-from models.match import LearningResource as SkillResourceItemSchema
 from models.resource_type import ResourceType
+
+
+class SkillResourceItemSchema(BaseModel):
+    """Learning resource selected for a specific skill gap."""
+
+    title: str = Field(min_length=1)
+    url: str = Field(min_length=1)
+    estimated_hours: int = Field(ge=0)
+    type: ResourceType
 
 
 class ResearchSkillResourcesOutputSchema(BaseModel):

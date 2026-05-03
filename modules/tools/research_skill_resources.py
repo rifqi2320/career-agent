@@ -21,6 +21,8 @@ from modules.resources.schemas import (
     ResourceType,
     SkillResourceItemSchema,
 )
+from modules.resources.service import rows_to_skill_resource_items
+from modules.matches.state import LAST_RESOURCES_RESEARCH_KEY, RESOURCES_BY_SKILL_KEY
 from modules.utils.adk_events import append_runtime_event
 from modules.utils.trace import (
     increment_fallbacks,
@@ -87,10 +89,10 @@ async def research_skill_resources(
             "confidence": confidence.confidence,
         }
     )
-    context.state["last_resources_research"] = result_payload.model_dump()
+    context.state[LAST_RESOURCES_RESEARCH_KEY] = result_payload.model_dump()
     store_tool_result_by_key(
         context,
-        state_key="resources_by_skill",
+        state_key=RESOURCES_BY_SKILL_KEY,
         item_key=normalized_skill.casefold(),
         value=result_payload.model_dump(),
     )
@@ -134,15 +136,7 @@ def get_curated_skill_resources(
             "Curated fallback found fewer than 3 resources for this skill."
         )
 
-    resources = [
-        SkillResourceItemSchema(
-            title=row.title,
-            url=row.url,
-            estimated_hours=row.estimated_hours,
-            type=ResourceType(row.resource_type),
-        )
-        for row in rows[:5]
-    ]
+    resources = rows_to_skill_resource_items(rows, limit=5)
     output = ResearchSkillResourcesOutputSchema(
         resources=resources,
         relevance_score=65,
@@ -158,10 +152,10 @@ def get_curated_skill_resources(
             "confidence": confidence.confidence,
         }
     )
-    context.state["last_resources_research"] = result_payload.model_dump()
+    context.state[LAST_RESOURCES_RESEARCH_KEY] = result_payload.model_dump()
     store_tool_result_by_key(
         context,
-        state_key="resources_by_skill",
+        state_key=RESOURCES_BY_SKILL_KEY,
         item_key=normalized_skill.casefold(),
         value=result_payload.model_dump(),
     )

@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 
 from agents.career_intelligence.agent import root_agent
 from agents.career_intelligence.builder import CAREER_INTELLIGENCE_AGENT_NAME
+from agents.career_intelligence.prompts import CAREER_MATCH_USER_PROMPT_TEMPLATE
 from models.match import AgentRunState, AgentStreamEvent, MatchOutput
 from modules.candidates.schemas import CandidateProfileInputSchema
 from modules.utils.adk_events import (
@@ -166,18 +167,11 @@ async def _produce_career_match_events(
 
 
 def _build_user_message(run_input: CareerMatchRunInput) -> types.Content:
-    prompt = (
-        "Run a candidate/job match workflow.\n\n"
-        "Use the registered tools instead of writing the final JSON manually.\n"
-        "Required sequence guidance: extract job requirements, score the candidate, "
-        "prioritize skill gaps, research only the highest-impact gaps, then call "
-        "finalize_match_output.\n\n"
-        f"Job ID: {run_input.job_id}\n"
-        f"Job market context: {run_input.job_market_context}\n"
-        "Candidate profile JSON:\n"
-        f"{run_input.candidate_profile.model_dump_json(indent=2)}\n\n"
-        "Job description text or URL:\n"
-        f"{run_input.job_url_or_text}"
+    prompt = CAREER_MATCH_USER_PROMPT_TEMPLATE.format(
+        job_id=run_input.job_id,
+        job_market_context=run_input.job_market_context,
+        candidate_profile_json=run_input.candidate_profile.model_dump_json(indent=2),
+        job_url_or_text=run_input.job_url_or_text,
     )
     return types.Content(role="user", parts=[types.Part.from_text(text=prompt)])
 

@@ -4,7 +4,6 @@ from time import perf_counter
 from typing import cast
 
 from google.adk.tools import ToolContext
-from pydantic import BaseModel, Field, model_validator
 
 from models.llm import LlmConfig
 from models.confidence import ConfidenceLevel, ConfidenceMetrics, calibrate_confidence
@@ -12,49 +11,25 @@ from modules.config.llm import LlmProfile, get_llm_config
 from modules.error.common import (
     RetryableModelOutputError,
     ToolInputError,
-    ValidationError,
 )
 from modules.logging import logging
+from modules.matches.schemas import (
+    PrioritizeSkillGapsOutputSchema,
+    PrioritizedSkillSchema,
+)
+from modules.matches.state import LAST_PRIORITIZED_SKILL_GAPS_KEY, LAST_SCORE_KEY
 from modules.tools.prompts import (
     PRIORITISE_SKILL_GAPS_SYSTEM_PROMPT,
     PRIORITISE_SKILL_GAPS_USER_PROMPT_TEMPLATE,
 )
-from modules.utils import generate_structured_output
+from modules.tools.structured_llm import generate_tool_structured_output
 from modules.utils.trace import increment_llm_calls
 
-
-class PrioritizedSkillSchema(BaseModel):
-    skill: str = Field(min_length=1)
-    priority_rank: int = Field(ge=1)
-    estimated_match_gain_pct: int = Field(ge=0, le=100)
-    rationale: str = Field(min_length=1)
-
-
-class PrioritizeSkillGapsOutputSchema(BaseModel):
-    prioritized_skills: list[PrioritizedSkillSchema] = Field(default_factory=list)
-    confidence_score: int = Field(default=0, ge=0, le=100)
-    confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
-
-    @model_validator(mode="after")
-    def validate_rank_integrity(self) -> PrioritizeSkillGapsOutputSchema:
-        if not self.prioritized_skills:
-            raise ValidationError("prioritized_skills must not be empty.")
-
-        normalized_skills = {
-            skill_item.skill.strip().casefold()
-            for skill_item in self.prioritized_skills
-        }
-        if len(normalized_skills) != len(self.prioritized_skills):
-            raise ValidationError("prioritized_skills contains duplicate skills.")
-
-        ranks = [skill_item.priority_rank for skill_item in self.prioritized_skills]
-        if len(set(ranks)) != len(ranks):
-            raise ValidationError("priority_rank values must be unique.")
-
-        expected_ranks = list(range(1, len(self.prioritized_skills) + 1))
-        if sorted(ranks) != expected_ranks:
-            raise ValidationError("priority_rank values must be consecutive from 1..N.")
-        return self
+__all__ = [
+    "PrioritizeSkillGapsOutputSchema",
+    "PrioritizedSkillSchema",
+    "prioritise_skill_gaps",
+]
 
 
 def _parse_gap_skills_from_state(raw_last_score: object) -> list[str]:
@@ -126,10 +101,8 @@ async def prioritise_skill_gaps(
 
     resolved_gap_skills = gap_skills
     if resolved_gap_skills is None:
-        logging.info(
-            "prioritise_skill_gaps loading skills from context.state['last_score'].gap_skills"
-        )
-        raw_last_score = context.state.get("last_score")
+        logging.info("prioritise_skill_gaps loading skills from context state")
+        raw_last_score = context.state.get(LAST_SCORE_KEY)
         if raw_last_score is None:
             raise ToolInputError(
                 "Missing `gap_skills` argument and `context.state['last_score']`."
@@ -176,7 +149,7 @@ async def prioritise_skill_gaps(
             "confidence": confidence.confidence,
         }
     )
-    context.state["last_prioritized_skill_gaps"] = result_payload.model_dump()
+    context.state[LAST_PRIORITIZED_SKILL_GAPS_KEY] = result_payload.model_dump()
     elapsed_ms = int((perf_counter() - started_at) * 1000)
     logging.info(
         "prioritise_skill_gaps success | gap_skills=%d confidence=%s confidence_score=%d elapsed_ms=%d",
@@ -198,10 +171,9 @@ async def _prioritise_skill_gaps_llm(
         gap_skills=gap_skills,
         job_market_context=job_market_context,
     )
-    result = await generate_structured_output(
+    return await generate_tool_structured_output(
         llm_config=llm_config,
         system_prompt=PRIORITISE_SKILL_GAPS_SYSTEM_PROMPT,
         user_prompt=user_prompt,
         schema=PrioritizeSkillGapsOutputSchema,
     )
-    return result.unwrap()
