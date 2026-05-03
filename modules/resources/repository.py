@@ -7,6 +7,7 @@ from sqlalchemy import and_, or_, select
 
 from models.resource import SkillResource
 from modules.database.client import SessionLocal
+from modules.error.common import ToolInputError
 
 
 @safe
@@ -19,9 +20,9 @@ def list_skill_resources(
     """Fetch candidate resources by skill name and optional seniority."""
     normalized_skill = skill_name.strip()
     if not normalized_skill:
-        raise ValueError("skill_name must not be empty.")
+        raise ToolInputError("skill_name must not be empty.")
     if limit <= 0:
-        raise ValueError("limit must be greater than 0.")
+        raise ToolInputError("limit must be greater than 0.")
 
     normalized_seniority = seniority_context.strip().casefold()
     with SessionLocal() as session:
