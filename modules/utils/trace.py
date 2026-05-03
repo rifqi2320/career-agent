@@ -36,7 +36,11 @@ def _is_state_like(value: object) -> bool:
 
 def tool_name(tool: BaseTool | object) -> str:
     """Return the runtime tool name used in traces."""
-    return str(getattr(tool, "name", None) or getattr(tool, "__name__", None) or type(tool).__name__)
+    return str(
+        getattr(tool, "name", None)
+        or getattr(tool, "__name__", None)
+        or type(tool).__name__
+    )
 
 
 def begin_tool_trace(tool: BaseTool | object, context: Context | object) -> None:
@@ -131,7 +135,9 @@ def build_agent_trace(context: Context | object) -> AgentTrace:
         {
             "tool_calls": tool_calls,
             "total_llm_calls": raw_llm_calls if isinstance(raw_llm_calls, int) else 0,
-            "fallbacks_triggered": raw_fallbacks if isinstance(raw_fallbacks, int) else 0,
+            "fallbacks_triggered": raw_fallbacks
+            if isinstance(raw_fallbacks, int)
+            else 0,
         }
     )
 

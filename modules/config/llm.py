@@ -31,9 +31,7 @@ def load_project_llm_config(
         ) from read_result.error
     raw_text = read_result.value
     if raw_text is None:
-        raise ConfigurationError(
-            f"Config file read returned no content: {config_path}"
-        )
+        raise ConfigurationError(f"Config file read returned no content: {config_path}")
 
     parse_result = parse_json_text(raw_text)
     if parse_result.is_err():

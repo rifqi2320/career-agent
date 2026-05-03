@@ -12,7 +12,11 @@ from safe_result import ok
 from models.llm import LlmConfig
 from models.confidence import ConfidenceMetrics, ConfidenceLevel, calibrate_confidence
 from modules.config.llm import LlmProfile, get_llm_config
-from modules.error.common import RetryableModelOutputError, ToolExecutionError, ToolInputError
+from modules.error.common import (
+    RetryableModelOutputError,
+    ToolExecutionError,
+    ToolInputError,
+)
 from modules.extractor.html import read_page_content
 from modules.logging import logging
 from modules.utils import generate_structured_output
@@ -92,7 +96,10 @@ def _estimate_extraction_confidence(
     metadata_signal = 0
     if requirements.domain and requirements.domain.lower() != "unknown":
         metadata_signal += 5
-    if requirements.seniority_level and requirements.seniority_level.lower() != "unknown":
+    if (
+        requirements.seniority_level
+        and requirements.seniority_level.lower() != "unknown"
+    ):
         metadata_signal += 5
 
     completeness_score = (

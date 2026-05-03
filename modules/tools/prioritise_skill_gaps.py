@@ -10,7 +10,11 @@ from pydantic import BaseModel, Field, model_validator
 from models.llm import LlmConfig
 from models.confidence import ConfidenceLevel, ConfidenceMetrics, calibrate_confidence
 from modules.config.llm import LlmProfile, get_llm_config
-from modules.error.common import RetryableModelOutputError, ToolInputError, ValidationError
+from modules.error.common import (
+    RetryableModelOutputError,
+    ToolInputError,
+    ValidationError,
+)
 from modules.logging import logging
 from modules.utils import generate_structured_output
 from modules.utils.trace import increment_llm_calls
@@ -68,7 +72,8 @@ class PrioritizeSkillGapsOutputSchema(BaseModel):
             raise ValidationError("prioritized_skills must not be empty.")
 
         normalized_skills = {
-            skill_item.skill.strip().casefold() for skill_item in self.prioritized_skills
+            skill_item.skill.strip().casefold()
+            for skill_item in self.prioritized_skills
         }
         if len(normalized_skills) != len(self.prioritized_skills):
             raise ValidationError("prioritized_skills contains duplicate skills.")
@@ -129,7 +134,9 @@ def _calibrate_prioritization_confidence(
     ) / len(result.prioritized_skills)
     completeness_penalty = 0
     if len(result.prioritized_skills) < len(resolved_skills):
-        completeness_penalty += (len(resolved_skills) - len(result.prioritized_skills)) * 6
+        completeness_penalty += (
+            len(resolved_skills) - len(result.prioritized_skills)
+        ) * 6
 
     return calibrate_confidence(avg_gain, penalties=completeness_penalty)
 

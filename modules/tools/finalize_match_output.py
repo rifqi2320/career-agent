@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from typing import cast
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from google.adk.tools import ToolContext
 
 from models.confidence import ConfidenceLevel
 from models.match import (
+    AgentRunState,
     LearningPlanItem,
     LearningResource,
     LearningResourceType,
@@ -36,22 +37,36 @@ def finalize_match_output(
     output_job_id = _resolve_job_id(state, job_id)
     gap_skills = _string_list(score.get("gap_skills"))
     matched_skills = _string_list(score.get("matched_skills"))
+    confidence = ConfidenceLevel(score.get("confidence", ConfidenceLevel.UNKNOWN))
+    _validate_final_confidence(confidence)
+    _validate_run_state(state)
+    _require_prioritized_gaps_if_needed(state=state, gap_skills=gap_skills)
+    _require_low_confidence_follow_up(
+        state=state,
+        confidence=confidence,
+        gap_skills=gap_skills,
+    )
     learning_plan = _build_learning_plan(
         state=state,
         gap_skills=gap_skills,
         max_items=max_learning_plan_items,
     )
-    final_reasoning = reasoning or _build_reasoning(
+    final_reasoning = _ensure_confidence_reasoning(
+        reasoning
+        or _build_reasoning(
+            overall_score=_int_field(score, "overall_score"),
+            confidence=confidence,
+            matched_count=len(matched_skills),
+            gap_count=len(gap_skills),
+        ),
         overall_score=_int_field(score, "overall_score"),
-        confidence=ConfidenceLevel(score.get("confidence", ConfidenceLevel.UNKNOWN)),
-        matched_count=len(matched_skills),
-        gap_count=len(gap_skills),
+        confidence=confidence,
     )
 
     output = MatchOutput(
         job_id=output_job_id,
         overall_score=_int_field(score, "overall_score"),
-        confidence=ConfidenceLevel(score.get("confidence", ConfidenceLevel.UNKNOWN)),
+        confidence=confidence,
         dimension_scores=MatchDimensionScores.model_validate(
             _require_mapping(score.get("dimension_scores"), "dimension_scores")
         ),
@@ -74,8 +89,99 @@ def _resolve_job_id(
     resolved_job_id = str(raw_job_id).strip() if raw_job_id is not None else ""
     if not resolved_job_id:
         resolved_job_id = str(uuid4())
+    try:
+        UUID(resolved_job_id)
+    except ValueError as error:
+        raise ToolInputError("job_id must be a valid UUID string.") from error
     state["job_id"] = resolved_job_id
     return resolved_job_id
+
+
+def _validate_run_state(state: MutableMapping[str, object]) -> None:
+    """Validate the typed ADK run-state payload before final output creation."""
+    try:
+        AgentRunState.model_validate(_state_snapshot(state))
+    except ValueError as error:
+        raise ToolInputError("ADK run state is invalid.") from error
+
+
+def _validate_final_confidence(confidence: ConfidenceLevel) -> None:
+    if confidence is ConfidenceLevel.UNKNOWN:
+        raise ToolInputError("confidence must be one of: low, medium, high.")
+
+
+def _state_snapshot(state: MutableMapping[str, object]) -> dict[str, object]:
+    """Return a plain dict for normal mappings and ADK State objects."""
+    to_dict = getattr(state, "to_dict", None)
+    if callable(to_dict):
+        snapshot = to_dict()
+        if isinstance(snapshot, dict):
+            return cast("dict[str, object]", snapshot)
+    return dict(state)
+
+
+def _require_prioritized_gaps_if_needed(
+    *,
+    state: MutableMapping[str, object],
+    gap_skills: list[str],
+) -> None:
+    """Require prioritization before producing a learning plan for gaps."""
+    if not gap_skills:
+        return
+    _prioritized_items(state)
+
+
+def _require_low_confidence_follow_up(
+    *,
+    state: MutableMapping[str, object],
+    confidence: ConfidenceLevel,
+    gap_skills: list[str],
+) -> None:
+    """Ensure low-confidence scores are not finalized without more signal."""
+    if confidence is not ConfidenceLevel.LOW or not gap_skills:
+        return
+
+    top_gap = _top_prioritized_skill(state)
+    if top_gap is None:
+        raise ToolInputError(
+            "Low-confidence finalization requires prioritized skill gaps."
+        )
+    if not _resources_for_skill(state, top_gap):
+        raise ToolInputError(
+            "Low-confidence finalization requires resources for the highest-priority gap."
+        )
+
+
+def _prioritized_items(state: MutableMapping[str, object]) -> list[dict[str, object]]:
+    raw_prioritized = _require_mapping(
+        state.get("last_prioritized_skill_gaps"),
+        "last_prioritized_skill_gaps",
+    )
+    raw_items = raw_prioritized.get("prioritized_skills")
+    if not isinstance(raw_items, list) or not raw_items:
+        raise ToolInputError(
+            "`context.state['last_prioritized_skill_gaps'].prioritized_skills` "
+            "must include at least one item when skill gaps exist."
+        )
+
+    items: list[dict[str, object]] = []
+    for raw_item in raw_items:
+        if not isinstance(raw_item, dict):
+            raise ToolInputError("Prioritized skill gap items must be JSON objects.")
+        items.append(cast("dict[str, object]", raw_item))
+    return items
+
+
+def _top_prioritized_skill(state: MutableMapping[str, object]) -> str | None:
+    prioritized = sorted(
+        _prioritized_items(state),
+        key=lambda item: _coerce_int(item.get("priority_rank"), default=999),
+    )
+    for item in prioritized:
+        raw_skill = item.get("skill")
+        if isinstance(raw_skill, str) and raw_skill.strip():
+            return raw_skill.strip()
+    return None
 
 
 def _build_learning_plan(
@@ -202,6 +308,22 @@ def _build_reasoning(
         f"The candidate scored {overall_score}/100 with {confidence.value} confidence "
         f"based on {matched_count} matched skills and {gap_count} remaining gaps. "
         "The learning plan prioritizes the gaps expected to improve role fit most."
+    )
+
+
+def _ensure_confidence_reasoning(
+    reasoning: str,
+    *,
+    overall_score: int,
+    confidence: ConfidenceLevel,
+) -> str:
+    if confidence is not ConfidenceLevel.LOW:
+        return reasoning
+    if "low confidence" in reasoning.casefold():
+        return reasoning
+    return (
+        f"{reasoning} This is a low confidence result because the available "
+        f"evidence only supports a {overall_score}/100 calibrated match score."
     )
 
 

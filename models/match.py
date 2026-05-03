@@ -4,10 +4,20 @@ from __future__ import annotations
 
 from enum import StrEnum
 from typing import Any, Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from models.confidence import ConfidenceLevel
+
+
+def _validate_uuid_text(value: str) -> str:
+    """Validate a string UUID while preserving JSON-friendly string output."""
+    try:
+        UUID(value)
+    except ValueError as error:
+        raise ValueError("job_id must be a valid UUID string.") from error
+    return value
 
 
 class LearningResourceType(StrEnum):
@@ -98,6 +108,20 @@ class MatchOutput(BaseModel):
     learning_plan: list[LearningPlanItem] = Field(default_factory=list)
     agent_trace: AgentTrace
 
+    @field_validator("job_id")
+    @classmethod
+    def validate_job_id(cls, value: str) -> str:
+        """Require the Part A output job identifier to be a UUID."""
+        return _validate_uuid_text(value)
+
+    @field_validator("confidence")
+    @classmethod
+    def validate_confidence(cls, value: ConfidenceLevel) -> ConfidenceLevel:
+        """Reject unknown confidence values in the final output schema."""
+        if value is ConfidenceLevel.UNKNOWN:
+            raise ValueError("confidence must be one of: low, medium, high.")
+        return value
+
 
 class AgentRunState(BaseModel):
     """Typed snapshot of state carried across Part A tool calls."""
@@ -107,4 +131,12 @@ class AgentRunState(BaseModel):
     last_score: dict[str, object] | None = None
     last_prioritized_skill_gaps: dict[str, object] | None = None
     resources_by_skill: dict[str, dict[str, object]] = Field(default_factory=dict)
-    agent_trace: AgentTrace = Field(default_factory=AgentTrace)
+    tool_calls: list[ToolCallTrace] = Field(default_factory=list)
+    total_llm_calls: int = Field(default=0, ge=0)
+    fallbacks_triggered: int = Field(default=0, ge=0)
+
+    @field_validator("job_id")
+    @classmethod
+    def validate_job_id(cls, value: str) -> str:
+        """Require run state to carry the UUID match job identifier."""
+        return _validate_uuid_text(value)

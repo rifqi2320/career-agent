@@ -5,6 +5,7 @@ from modules.error.common import ToolInputError
 
 MAXIMUM_URL_LENGTH = 4096
 
+
 @safe
 def validate_url(url: str) -> ParseResult:
     if len(url) > MAXIMUM_URL_LENGTH:

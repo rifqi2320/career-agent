@@ -420,7 +420,6 @@ SEMANTIC_SNAPSHOT_SCRIPT = r"""
 """
 
 
-
 @safe_async
 async def read_page_content(url: str) -> str:
     """Fetch a page and return a semantic YAML snapshot for LLM use."""

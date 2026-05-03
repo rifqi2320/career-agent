@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 
 from agents.career_intelligence.agent import root_agent
 from agents.career_intelligence.builder import CAREER_INTELLIGENCE_AGENT_NAME
-from models.match import AgentStreamEvent, MatchOutput
+from models.match import AgentRunState, AgentStreamEvent, MatchOutput
 from modules.tools.score_candidate_against_requirements import (
     CandidateProfileInputSchema,
 )
@@ -112,7 +112,10 @@ async def _produce_career_match_events(
         app_name=CAREER_MATCH_APP_NAME,
         user_id=run_input.user_id,
         session_id=run_input.job_id,
-        state={"job_id": run_input.job_id},
+        state=AgentRunState(job_id=run_input.job_id).model_dump(
+            mode="json",
+            exclude_none=True,
+        ),
     )
     runner = Runner(
         app_name=CAREER_MATCH_APP_NAME,
