@@ -2,9 +2,8 @@ from __future__ import annotations
 
 from google.adk.tools import ToolContext
 import pytest
-from safe_result import safe_async
 
-from modules.error.common import RetryableModelOutputError
+from modules.error.common import ToolInputError
 from modules.tools import score_candidate_against_requirements as tool_module
 from modules.tools.score_candidate_against_requirements import (
     CandidateProfileInputSchema,
@@ -37,9 +36,9 @@ async def test_score_candidate_uses_state_requirements_and_stores_last_score(
         matched_skills=["python"],
         gap_skills=["sql"],
         confidence=ConfidenceLevel.MEDIUM,
+        confidence_score=81,
     )
 
-    @safe_async
     async def fake_score_llm(
         candidate_profile: CandidateProfileInputSchema,  # noqa: ARG001
         requirements: RequirementsInputSchema,  # noqa: ARG001
@@ -53,7 +52,7 @@ async def test_score_candidate_uses_state_requirements_and_stores_last_score(
         fake_score_llm,
     )
 
-    result = await tool_module._score_candidate_against_requirements(
+    result = await tool_module.score_candidate_against_requirements(
         candidate_profile=CandidateProfileInputSchema(
             skills=["python"],
             years_experience=5,
@@ -64,52 +63,73 @@ async def test_score_candidate_uses_state_requirements_and_stores_last_score(
         context=tool_context,
     )
 
-    assert result.is_ok()
-    assert result.value == expected
+    assert result == expected
     assert tool_context.state["last_score"] == expected.model_dump()
+
+
+@pytest.mark.asyncio
+async def test_score_candidate_passes_explicit_requirements_to_llm(
+    monkeypatch: pytest.MonkeyPatch,
+    tool_context: ToolContext,
+) -> None:
+    requirements = RequirementsInputSchema(
+        required_skills=["prompt engineering", "rag", "apis"],
+        seniority_level="mid-level",
+        domain="ai",
+    )
+    expected = ScoreCandidateOutputSchema(
+        overall_score=92,
+        dimension_scores=ScoreDimensionsSchema(
+            skills=100,
+            experience=75,
+            seniority_fit=90,
+        ),
+        matched_skills=["apis", "prompt engineering", "rag"],
+        gap_skills=[],
+        confidence=ConfidenceLevel.HIGH,
+        confidence_score=92,
+    )
+
+    async def fake_score_llm(
+        candidate_profile: CandidateProfileInputSchema,
+        requirements: RequirementsInputSchema,
+        llm_config: object,  # noqa: ARG001
+    ) -> ScoreCandidateOutputSchema:
+        assert candidate_profile.skills == [
+            "prompt design",
+            "rag architectures",
+            "api design",
+        ]
+        assert requirements.required_skills == ["prompt engineering", "rag", "apis"]
+        return expected
+
+    monkeypatch.setattr(
+        tool_module,
+        "_score_candidate_against_requirements_llm",
+        fake_score_llm,
+    )
+
+    result = await tool_module.score_candidate_against_requirements(
+        candidate_profile=CandidateProfileInputSchema(
+            skills=["prompt design", "rag architectures", "api design"],
+            years_experience=3,
+            seniority_level="mid",
+            domain="ai",
+        ),
+        requirements=requirements,
+        context=tool_context,
+    )
+
+    assert result == expected
 
 
 @pytest.mark.asyncio
 async def test_score_candidate_requires_requirements_when_state_missing(
     tool_context: ToolContext,
 ) -> None:
-    result = await tool_module._score_candidate_against_requirements(
-        candidate_profile=CandidateProfileInputSchema(skills=["python"]),
-        requirements=None,
-        context=tool_context,
-    )
-
-    assert result.is_err()
-    assert isinstance(result.error, ValueError)
-    assert "Missing requirements input" in str(result.error)
-
-
-@pytest.mark.asyncio
-async def test_score_candidate_retryable_error_passthrough(
-    monkeypatch: pytest.MonkeyPatch,
-    tool_context: ToolContext,
-) -> None:
-    requirements = RequirementsInputSchema(required_skills=["python"])
-
-    @safe_async
-    async def fake_score_error(
-        candidate_profile: CandidateProfileInputSchema,  # noqa: ARG001
-        requirements: RequirementsInputSchema,  # noqa: ARG001
-        llm_config: object,  # noqa: ARG001
-    ) -> ScoreCandidateOutputSchema:
-        raise RetryableModelOutputError("schema mismatch")
-
-    monkeypatch.setattr(
-        tool_module,
-        "_score_candidate_against_requirements_llm",
-        fake_score_error,
-    )
-
-    result = await tool_module._score_candidate_against_requirements(
-        candidate_profile=CandidateProfileInputSchema(skills=["python"]),
-        requirements=requirements,
-        context=tool_context,
-    )
-
-    assert result.is_err()
-    assert isinstance(result.error, RetryableModelOutputError)
+    with pytest.raises(ToolInputError, match="Missing requirements input"):
+        await tool_module.score_candidate_against_requirements(
+            candidate_profile=CandidateProfileInputSchema(skills=["python"]),
+            requirements=None,
+            context=tool_context,
+        )

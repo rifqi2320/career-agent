@@ -5,23 +5,24 @@ from time import perf_counter
 from google.adk.tools import ToolContext
 from jinja2 import Template
 from pydantic import BaseModel, Field
-from safe_result import ok, safe_async
+from safe_result import ok
 
 from models.llm import LlmConfig
+from models.confidence import ConfidenceMetrics, ConfidenceLevel, calibrate_confidence
 from modules.config.llm import LlmProfile, get_llm_config
-from modules.error.common import RetryableModelOutputError
+from modules.error.common import RetryableModelOutputError, ToolExecutionError, ToolInputError
 from modules.extractor.html import read_page_content
 from modules.logging import logging
-from modules.tools.wrapper import wrap_safe_tool
 from modules.utils import generate_structured_output
 from modules.utils.text import validate_url
-
-MAX_URL_LENGTH = 2048
+from modules.utils.trace import increment_llm_calls
 
 EXTRACT_JD_SYSTEM_PROMPT = """
 You are an information extraction engine.
 Extract job requirements from the provided job description.
-Return strict JSON only, matching this schema:
+
+Output strictly a JSON object only, and nothing else (no markdown, no prose, no fences).
+The object must match this exact schema:
 - required_skills: list[str]
 - nice_to_have_skills: list[str]
 - seniority_level: str
@@ -29,9 +30,37 @@ Return strict JSON only, matching this schema:
 - responsibilities: list[str]
 
 Rules:
-- Do not include explanations.
-- If information is missing, return empty lists and "unknown" for strings.
-- Keep list items concise and deduplicated.
+- If information is missing, use empty lists and "unknown" for strings.
+- Use only details present in the input text; do not infer unstated items.
+- Normalize each skill to lowercase.
+- Normalize near-equivalent wording with these mappings before deduplication:
+  - "api design", "api development", "api integration", "apis" -> "apis"
+  - "embedding models", "embeddings", "vector databases", "vector db" -> "vector database"
+  - "llms" -> "llm"
+  - "prompt design", "prompt engineering" -> "prompt engineering"
+  - "rag architecture", "rag architectures", "retrieval augmented generation" -> "rag"
+  - "function/tool calling", "function calling" -> "tool calling"
+- Do not include "tool calling" in `required_skills` unless explicitly required in the job description.
+- Sort `required_skills` and `nice_to_have_skills` alphabetically.
+- Keep only unique values in each list.
+- Ensure `nice_to_have_skills` contains no item that is already in `required_skills`.
+- Keep responsibilities concise, action-oriented, de-duplicated, sorted alphabetically, and at most 8 items.
+- Normalize seniority_level to one of: "junior", "mid-level", "senior", "lead", "unknown".
+- Use these seniority rules:
+  - explicit "junior" or 0-1 years -> "junior"
+  - explicit "mid" or 2-4 years -> "mid-level"
+  - explicit "senior" or 5+ years -> "senior"
+  - explicit "lead", "staff", "principal", or people leadership -> "lead"
+  - no explicit title or years -> "unknown"
+- Normalize domain to a short lowercase label (or "unknown" if unclear).
+- Return an object in this example shape:
+{
+  "required_skills": ["api design", "python", "rag"],
+  "nice_to_have_skills": ["langchain"],
+  "seniority_level": "mid-level",
+  "domain": "fintech",
+  "responsibilities": ["build evaluation loops", "ship ai features"]
+}
 """.strip()
 EXTRACT_JD_USER_PROMPT_TEMPLATE = Template(
     """
@@ -47,10 +76,30 @@ class ExtractJDRequirementOutputSchema(BaseModel):
     seniority_level: str = "unknown"
     domain: str = "unknown"
     responsibilities: list[str] = Field(default_factory=list)
+    confidence_score: int = 0
+    confidence: ConfidenceLevel = ConfidenceLevel.UNKNOWN
 
 
-@safe_async
-async def _extract_jd_requirements(
+def _estimate_extraction_confidence(
+    requirements: ExtractJDRequirementOutputSchema,
+) -> ConfidenceMetrics:
+    """Compute deterministic confidence from extraction completeness and signal density."""
+    required_signal = min(len(requirements.required_skills), 5) * 10
+    nice_to_have_signal = min(len(requirements.nice_to_have_skills), 3) * 5
+    responsibility_signal = min(len(requirements.responsibilities), 8) * 4
+    metadata_signal = 0
+    if requirements.domain and requirements.domain.lower() != "unknown":
+        metadata_signal += 5
+    if requirements.seniority_level and requirements.seniority_level.lower() != "unknown":
+        metadata_signal += 5
+
+    completeness_score = (
+        required_signal + nice_to_have_signal + responsibility_signal + metadata_signal
+    )
+    return calibrate_confidence(completeness_score)
+
+
+async def extract_jd_requirements(
     url_or_text: str,
     *,
     context: ToolContext,
@@ -67,10 +116,6 @@ async def _extract_jd_requirements(
     url = validate_url(url_or_text)
     if ok(url):
         logging.info("extract_jd_requirements input resolved as URL")
-        if len(url_or_text) > MAX_URL_LENGTH:
-            raise ValueError(
-                f"URL exceeds maximum length of {MAX_URL_LENGTH} characters."
-            )
         logging.info("extract_jd_requirements fetching URL content")
         text_result = await read_page_content(url.value)
         if text_result.is_err():
@@ -79,7 +124,7 @@ async def _extract_jd_requirements(
                 f"Error: {text_result.error}"
             )
             logging.error(error_message)
-            raise RuntimeError(error_message)
+            raise ToolExecutionError(error_message, original_error=text_result.error)
         else:
             if text_result.value and text_result.value.strip():
                 text = text_result.value
@@ -92,8 +137,10 @@ async def _extract_jd_requirements(
                     "Page content from URL input is empty and cannot be parsed."
                 )
                 logging.error(error_message)
-                raise RuntimeError(error_message)
+                raise ToolExecutionError(error_message)
     else:
+        if url_or_text.strip().lower().startswith(("http://", "https://")):
+            raise ToolInputError(str(url.error), original_error=url.error)
         text = url_or_text
         logging.info(
             "extract_jd_requirements input resolved as raw text | text_length=%d",
@@ -105,32 +152,34 @@ async def _extract_jd_requirements(
         "extract_jd_requirements LLM extraction started | model=%s",
         llm_config.model_name,
     )
-    result = await _parse_requirements_from_text_llm(text, llm_config)
-    if result.is_ok() and result.value is not None:
-        context.state["last_requirements"] = result.value.model_dump()
-        elapsed_ms = int((perf_counter() - started_at) * 1000)
-        logging.info(
-            "extract_jd_requirements success | required=%d nice_to_have=%d responsibilities=%d elapsed_ms=%d",
-            len(result.value.required_skills),
-            len(result.value.nice_to_have_skills),
-            len(result.value.responsibilities),
-            elapsed_ms,
-        )
-        return result.value
+    increment_llm_calls(context)
+    try:
+        requirements = await _parse_requirements_from_text_llm(text, llm_config)
+    except RetryableModelOutputError:
+        logging.warning("extract_jd_requirements retryable model output failure")
+        raise
 
-    if isinstance(result.error, RetryableModelOutputError):
-        logging.warning(
-            "extract_jd_requirements retryable model output failure | error=%s",
-            result.error,
-        )
-        raise result.error
+    calibrated_confidence = _estimate_extraction_confidence(requirements)
+    result_payload = requirements.model_copy(
+        update={
+            "confidence_score": calibrated_confidence.confidence_score,
+            "confidence": calibrated_confidence.confidence,
+        }
+    )
+    context.state["last_requirements"] = result_payload.model_dump()
+    elapsed_ms = int((perf_counter() - started_at) * 1000)
+    logging.info(
+        "extract_jd_requirements success | required=%d nice_to_have=%d responsibilities=%d confidence=%s confidence_score=%d elapsed_ms=%d",
+        len(requirements.required_skills),
+        len(requirements.nice_to_have_skills),
+        len(requirements.responsibilities),
+        result_payload.confidence,
+        result_payload.confidence_score,
+        elapsed_ms,
+    )
+    return result_payload
 
-    error_message = f"LLM extraction failed: {result.error}"
-    logging.error(error_message)
-    raise RuntimeError(error_message)
 
-
-@safe_async
 async def _parse_requirements_from_text_llm(
     text: str, LlmConfig: LlmConfig
 ) -> ExtractJDRequirementOutputSchema:
@@ -144,6 +193,3 @@ async def _parse_requirements_from_text_llm(
         schema=ExtractJDRequirementOutputSchema,
     )
     return result.unwrap()
-
-
-extract_jd_requirements = wrap_safe_tool(_extract_jd_requirements)

@@ -1,44 +1,47 @@
 from __future__ import annotations
 
-from enum import StrEnum
 from time import perf_counter
 
 from google.adk.tools import ToolContext
 from jinja2 import Template
 from pydantic import BaseModel, Field
-from safe_result import safe, safe_async
 
 from models.llm import LlmConfig
+from models.confidence import ConfidenceLevel, ConfidenceMetrics, calibrate_confidence
 from modules.config.llm import LlmProfile, get_llm_config
-from modules.error.common import RetryableModelOutputError
+from modules.error.common import RetryableModelOutputError, ToolInputError
 from modules.logging import logging
-from modules.tools.wrapper import wrap_safe_tool
 from modules.utils import generate_structured_output
+from modules.utils.trace import increment_llm_calls
 
 SCORE_CANDIDATE_SYSTEM_PROMPT = """
-You are a strict scoring engine.
+You are a career-fit scoring engine.
 
-Given a candidate profile and job requirements, return JSON only that matches this schema:
+Return only a JSON object, with no markdown, prose, or code fences.
+The object must match this exact schema:
 - overall_score: integer 0-100
-- dimension_scores: {skills: int, experience: int, seniority_fit: int}
+- dimension_scores: object with keys skills, experience, seniority_fit; each integer 0-100
 - matched_skills: list[str]
 - gap_skills: list[str]
 - confidence: "low" | "medium" | "high"
 
-Scoring rules:
-- skills score should reflect required-skill match quality.
-- experience score should reflect years/scope fit for the required seniority.
-- seniority_fit should reflect level alignment.
-- overall_score should be a balanced rollup of dimensions.
-
-Confidence rules:
-- Derive confidence from observable signals only: JD completeness, required-skill match ratio, and domain/seniority clarity.
-- Use low confidence when key requirement data is sparse or ambiguous.
-
-Constraints:
-- Do not invent skills that are absent from both inputs.
-- matched_skills and gap_skills must be deduplicated and concise.
-- If inputs are incomplete, still return a valid object with conservative scoring.
+Scoring guidance:
+- Compare skills semantically, not only by exact string match.
+- Treat common equivalents as related, for example:
+  - "api", "api design", and "apis"
+  - "prompt design" and "prompt engineering"
+  - "llm", "llms", and "llm applications"
+  - "rag", "rag architectures", and "retrieval augmented generation"
+  - "function calling", "function/tool calling", and "tool calling"
+- `matched_skills` must contain requirement skill names that are reasonably evidenced by the candidate profile.
+- `gap_skills` must contain requirement skill names that are not reasonably evidenced.
+- Do not invent candidate skills or job requirements.
+- Score `skills` from matched required skills and strength of evidence.
+- Score `experience` from years_experience and relevance of work history to the role.
+- Score `seniority_fit` from seniority alignment, scope, ownership, and role expectations.
+- Compute `overall_score` from the three dimensions with strongest weight on skills fit.
+- Use confidence "low" when input evidence is thin or ambiguous, "medium" for adequate evidence, and "high" for strong structured evidence.
+- Sort `matched_skills` and `gap_skills` alphabetically.
 """.strip()
 
 SCORE_CANDIDATE_USER_PROMPT_TEMPLATE = Template(
@@ -50,18 +53,6 @@ Requirements (JSON):
 {{ requirements }}
 """.strip()
 )
-
-
-class ConfidenceLevel(StrEnum):
-    LOW = "low"
-    MEDIUM = "medium"
-    HIGH = "high"
-
-    UNKNOWN = "unknown"
-
-    @classmethod
-    def _missing_(cls, value: object) -> ConfidenceLevel:
-        return cls.UNKNOWN
 
 
 class CandidateProfileInputSchema(BaseModel):
@@ -90,21 +81,49 @@ class ScoreCandidateOutputSchema(BaseModel):
     matched_skills: list[str] = Field(default_factory=list)
     gap_skills: list[str] = Field(default_factory=list)
     confidence: ConfidenceLevel
+    confidence_score: int = Field(default=0, ge=0, le=100)
 
 
-@safe
+def _calibrate_candidate_confidence(
+    result: ScoreCandidateOutputSchema,
+    requirements: RequirementsInputSchema,
+    candidate_profile: CandidateProfileInputSchema,
+) -> ConfidenceMetrics:
+    """Deterministically calibrate confidence from score and input signal quality."""
+    penalty = 0
+    if not requirements.required_skills:
+        penalty += 25
+    if (
+        not requirements.seniority_level
+        or requirements.seniority_level.lower() == "unknown"
+    ):
+        penalty += 8
+    if (
+        not candidate_profile.seniority_level
+        or candidate_profile.seniority_level.lower() == "unknown"
+    ):
+        penalty += 8
+    if not requirements.domain or requirements.domain.lower() == "unknown":
+        penalty += 5
+    if not candidate_profile.domain or candidate_profile.domain.lower() == "unknown":
+        penalty += 5
+    if not candidate_profile.skills:
+        penalty += 10
+
+    return calibrate_confidence(result.overall_score, penalties=penalty)
+
+
 def _parse_requirements_from_state(raw_requirements: object) -> RequirementsInputSchema:
     return RequirementsInputSchema.model_validate(raw_requirements)
 
 
-@safe_async
-async def _score_candidate_against_requirements(
+async def score_candidate_against_requirements(
     candidate_profile: CandidateProfileInputSchema,
     requirements: RequirementsInputSchema | None = None,
     *,
     context: ToolContext,
 ) -> ScoreCandidateOutputSchema:
-    """Score candidate fit using LLM reasoning and persist the latest score."""
+    """Score candidate fit using LLM judgment and persist the latest score."""
     started_at = perf_counter()
     logging.info(
         "score_candidate_against_requirements started | candidate_skills=%d has_requirements_arg=%s",
@@ -118,19 +137,15 @@ async def _score_candidate_against_requirements(
         )
         raw_requirements = context.state.get("last_requirements")
         if raw_requirements is None:
-            raise ValueError(
+            raise ToolInputError(
                 "Missing requirements input and `context.state['last_requirements']`."
             )
-        parse_result = _parse_requirements_from_state(raw_requirements)
-        if parse_result.is_err():
-            raise ValueError(
+        try:
+            resolved_requirements = _parse_requirements_from_state(raw_requirements)
+        except ValueError as error:
+            raise ToolInputError(
                 "Invalid requirements in `context.state['last_requirements']`."
-            ) from parse_result.error
-        resolved_requirements = parse_result.value
-        if resolved_requirements is None:
-            raise ValueError(
-                "Invalid requirements in `context.state['last_requirements']`."
-            )
+            ) from error
         logging.info(
             "score_candidate_against_requirements loaded requirements from state | required_skills=%d responsibilities=%d",
             len(resolved_requirements.required_skills),
@@ -138,44 +153,49 @@ async def _score_candidate_against_requirements(
         )
 
     if resolved_requirements is None:
-        raise ValueError("Requirements could not be resolved.")
+        raise ToolInputError("Requirements could not be resolved.")
 
     llm_config: LlmConfig = get_llm_config(profile=LlmProfile.MAIN)
     logging.info(
         "score_candidate_against_requirements LLM scoring started | model=%s",
         llm_config.model_name,
     )
-    result = await _score_candidate_against_requirements_llm(
-        candidate_profile,
-        resolved_requirements,
-        llm_config,
+    increment_llm_calls(context)
+    try:
+        score = await _score_candidate_against_requirements_llm(
+            candidate_profile,
+            resolved_requirements,
+            llm_config,
+        )
+    except RetryableModelOutputError:
+        logging.warning("score_candidate_against_requirements retryable model output failure")
+        raise
+
+    confidence = _calibrate_candidate_confidence(
+        result=score,
+        requirements=resolved_requirements,
+        candidate_profile=candidate_profile,
     )
-    if result.is_ok() and result.value is not None:
-        context.state["last_score"] = result.value.model_dump()
-        elapsed_ms = int((perf_counter() - started_at) * 1000)
-        logging.info(
-            "score_candidate_against_requirements success | overall_score=%d confidence=%s matched=%d gaps=%d elapsed_ms=%d",
-            result.value.overall_score,
-            result.value.confidence,
-            len(result.value.matched_skills),
-            len(result.value.gap_skills),
-            elapsed_ms,
-        )
-        return result.value
-
-    if isinstance(result.error, RetryableModelOutputError):
-        logging.warning(
-            "score_candidate_against_requirements retryable model output failure | error=%s",
-            result.error,
-        )
-        raise result.error
-
-    error_message = f"Scoring failed: {result.error}"
-    logging.error(error_message)
-    raise RuntimeError(error_message)
+    result_payload = score.model_copy(
+        update={
+            "confidence_score": confidence.confidence_score,
+            "confidence": confidence.confidence,
+        }
+    )
+    context.state["last_score"] = result_payload.model_dump()
+    elapsed_ms = int((perf_counter() - started_at) * 1000)
+    logging.info(
+        "score_candidate_against_requirements success | overall_score=%d confidence=%s confidence_score=%d matched=%d gaps=%d elapsed_ms=%d",
+        result_payload.overall_score,
+        result_payload.confidence,
+        result_payload.confidence_score,
+        len(result_payload.matched_skills),
+        len(result_payload.gap_skills),
+        elapsed_ms,
+    )
+    return result_payload
 
 
-@safe_async
 async def _score_candidate_against_requirements_llm(
     candidate_profile: CandidateProfileInputSchema,
     requirements: RequirementsInputSchema,
@@ -194,8 +214,3 @@ async def _score_candidate_against_requirements_llm(
         schema=ScoreCandidateOutputSchema,
     )
     return result.unwrap()
-
-
-score_candidate_against_requirements = wrap_safe_tool(
-    _score_candidate_against_requirements
-)

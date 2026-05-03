@@ -1,74 +1,75 @@
 ## Work Experiences
 
-### AI Platform Engineer  
-**Shopee**  
+### Software Engineer  
+**Nexora Technologies**  
 **Dec 2025 – Current**
 
-- Develop platform features and serve as a production engineer for an AI platform used by 200+ teams globally.
-- Built an optimized tabular knowledge base using DuckDB over Parquet on S3, improving retrieval precision and reducing token usage by 30%.
-- Standardized streaming AI outputs across multiple channels using Redis Streams, replacing a polling-based approach and significantly reducing server load while improving responsiveness and overall system efficiency.
+- Develop backend platform services for a cloud-native software product used by engineering, data, and operations teams across multiple regions.
+- Built a high-performance event processing service using Go, PostgreSQL, and Kafka, improving data synchronization reliability and reducing delayed jobs by 35%.
+- Designed reusable internal APIs and developer tooling that standardized service integration patterns, reducing onboarding time for new engineering teams.
 
-### Full Stack Engineer (AI)  
-**CharCentric**  
+### Full Stack Software Engineer  
+**Aster Labs**  
 **Feb 2024 – Nov 2025**
 
-- Built a centralized authorization service in Rust using Casbin, standardizing access control across services.
-- Developed features for a scalable data workflow platform that streamlined client acquisition and accelerated PoC development through custom pipelines, agentic chatbots, and dashboards.
-- Served as a technical liaison for 2 enterprise clients, designing data workflows for news monitoring and AI-based scoring of investment pitch decks.
+- Built and maintained full-stack features for a workflow automation platform using TypeScript, React, Node.js, and PostgreSQL.
+- Developed a centralized role-based access control module, improving permission consistency across multiple client-facing applications.
+- Collaborated with product managers and enterprise users to translate operational requirements into dashboards, automation flows, and reporting features.
+- Improved frontend performance by refactoring shared components and optimizing API usage, reducing page load time for key workflows.
 
-### Student Research Intern  
-**Japan Advanced Institute of Science and Technology**  
+### Software Engineering Intern  
+**Kansai Institute of Technology**  
 **Jan 2024 – Feb 2024**
 
-- Selected as 1 of 10 Indonesian students for the Sakura Science Program, a Japanese government-funded research initiative.
-- Presented research outcomes at an academic symposium with professors and international participants.
+- Selected for an international research internship focused on applied software engineering and intelligent systems.
+- Built prototype tools for data annotation and analysis, supporting research experiments and improving team productivity.
+- Presented technical findings to faculty members, researchers, and international participants.
 
 ---
 
 ## Education
 
-### Master of Science, Informatics  
+### Master of Science, Computer Science  
 **Institut Teknologi Bandung**  
 **Sept 2024 – Sept 2025**
 
 - Final GPA: 3.84
-- Graduated with Cum Laude honors from a Fast Track program, specializing in AI and ML engineering.
-- Awarded the Ganesha Talent Assistantship 100 full scholarship, selected as one of 30 students.
-- Served as a course assistant for Natural Language Processing, covering practical topics such as LLM fine-tuning and LangChain.
+- Graduated with Cum Laude honors from a Fast Track program, specializing in software engineering and distributed systems.
+- Awarded a full academic scholarship for outstanding performance and research potential.
+- Served as a teaching assistant for Software Engineering, covering topics such as system design, API development, testing, and deployment practices.
 
-### Bachelor of Science, Informatics  
+### Bachelor of Science, Computer Science  
 **Institut Teknologi Bandung**  
 **Aug 2020 – July 2024**
 
 - Final GPA: 3.88
-- Graduated Cum Laude while taking on significant leadership roles in organizations and major campus events.
-- Under full scholarship, Beasiswa Unggulan, from the Ministry of Education and Culture, Indonesia.
-- Held leadership roles in major campus events, including OSKM ITB 2023 and ITBMUN 2023.
+- Graduated Cum Laude while actively contributing to student organizations and large-scale campus events.
+- Recipient of a full undergraduate scholarship from the Ministry of Education and Culture, Indonesia.
+- Held leadership roles in major campus initiatives, coordinating cross-functional teams and managing event operations.
 
 ---
 
 ## Publications
 
-### Speech Content De-Identification in Low-Resource Transcripts  
-**SEALP 2025 @ COLING 2025**  
-https://aclanthology.org/2025.sealp-1.6/
+### Efficient Service Composition for Workflow-Oriented Applications  
+**International Conference on Software Systems 2025**
 
-- Proposed a weakly supervised learning framework for Named Entity Recognition, or NER, on minimally labeled speech transcripts.
-- Improved baseline performance by 29% F1 and 30% Recall.
-- Demonstrated robustness to noisy ASR outputs.
+- Proposed a modular approach for composing backend services in workflow-driven software platforms.
+- Evaluated the approach on prototype applications involving task orchestration, access control, and data synchronization.
+- Demonstrated improvements in maintainability, extensibility, and developer productivity.
 
 ---
 
 ## Selected Projects
 
-### ESDC AI
+### Orion Workflow Engine
 
-Led a research team of 5 to develop domain-specific agentic chatbot solutions for a national oil and gas organization, incorporating fine-tuning, LLM-based evaluation, reinforcement learning, GRPO, and prompt optimization, GEPA.
+Led a team of 5 engineers to build a configurable workflow automation system for enterprise operations, incorporating task orchestration, approval flows, role-based permissions, audit logs, and real-time status tracking.
 
-### PLN Data Sync
+### GridSync Analytics
 
-Built a real-time data ingestion pipeline for SCADA analytics dashboards using Prefect for orchestration and Polars for fast, scalable processing.
+Built a real-time data ingestion and monitoring pipeline for operational dashboards using Kafka, PostgreSQL, and Python-based processing jobs, enabling faster anomaly detection and reporting.
 
-### Seras.io
+### LedgerKit
 
-Co-developed AI product prototypes with a finance expert, leveraging agentic LLM systems to validate marketable use cases and accelerate PoC development.
+Co-developed a financial operations platform prototype with a domain expert, implementing transaction tracking, reconciliation workflows, role-based access, and interactive reporting dashboards.
