@@ -424,16 +424,20 @@ SEMANTIC_SNAPSHOT_SCRIPT = r"""
 @safe_async
 async def read_page_content(url: str) -> str:
     """Fetch a page and return a semantic YAML snapshot for LLM use."""
-    validate_url(url)
+    resolved_url = validate_url(url).unwrap().geturl()
 
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
         page = await browser.new_page()
         try:
             try:
-                await page.goto(url, wait_until="networkidle", timeout=30000)
+                await page.goto(resolved_url, wait_until="networkidle", timeout=30000)
             except Exception:
-                await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                await page.goto(
+                    resolved_url,
+                    wait_until="domcontentloaded",
+                    timeout=30000,
+                )
             snapshot = await page.evaluate(SEMANTIC_SNAPSHOT_SCRIPT)
         finally:
             await browser.close()

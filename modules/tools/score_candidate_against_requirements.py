@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import json
+from collections.abc import Mapping
 from time import perf_counter
 
 from google.adk.tools import ToolContext
 from jinja2 import Template
-from pydantic import BaseModel, Field
+from pydantic import AliasChoices, BaseModel, Field
 
 from models.llm import LlmConfig
 from models.confidence import ConfidenceLevel, ConfidenceMetrics, calibrate_confidence
@@ -58,13 +60,22 @@ Requirements (JSON):
 class CandidateProfileInputSchema(BaseModel):
     skills: list[str] = Field(default_factory=list)
     years_experience: float | None = Field(default=None, ge=0)
-    seniority_level: str = "unknown"
+    seniority_level: str = Field(
+        default="unknown",
+        validation_alias=AliasChoices("seniority_level", "seniority"),
+    )
     domain: str = "unknown"
 
 
 class RequirementsInputSchema(BaseModel):
-    required_skills: list[str] = Field(default_factory=list)
-    seniority_level: str = "unknown"
+    required_skills: list[str] = Field(
+        default_factory=list,
+        validation_alias=AliasChoices("required_skills", "skills"),
+    )
+    seniority_level: str = Field(
+        default="unknown",
+        validation_alias=AliasChoices("seniority_level", "seniority"),
+    )
     domain: str = "unknown"
     responsibilities: list[str] = Field(default_factory=list)
 
@@ -117,20 +128,63 @@ def _parse_requirements_from_state(raw_requirements: object) -> RequirementsInpu
     return RequirementsInputSchema.model_validate(raw_requirements)
 
 
+def _parse_candidate_profile(
+    raw_candidate_profile: object,
+) -> CandidateProfileInputSchema:
+    """Validate a tool-facing candidate profile payload."""
+    if isinstance(raw_candidate_profile, CandidateProfileInputSchema):
+        return raw_candidate_profile
+    if isinstance(raw_candidate_profile, str):
+        try:
+            raw_candidate_profile = json.loads(raw_candidate_profile)
+        except json.JSONDecodeError as error:
+            raise ToolInputError("candidate_profile must be valid JSON.") from error
+    if not isinstance(raw_candidate_profile, Mapping):
+        raise ToolInputError("candidate_profile must be a JSON object string.")
+    try:
+        return CandidateProfileInputSchema.model_validate(raw_candidate_profile)
+    except ValueError as error:
+        raise ToolInputError("candidate_profile is invalid.") from error
+
+
+def _parse_requirements_argument(raw_requirements: object) -> RequirementsInputSchema:
+    """Validate a tool-facing requirements payload."""
+    if isinstance(raw_requirements, RequirementsInputSchema):
+        return raw_requirements
+    if isinstance(raw_requirements, str):
+        try:
+            raw_requirements = json.loads(raw_requirements)
+        except json.JSONDecodeError as error:
+            raise ToolInputError("requirements must be valid JSON.") from error
+    if not isinstance(raw_requirements, Mapping):
+        raise ToolInputError("requirements must be a JSON object string when provided.")
+    try:
+        return RequirementsInputSchema.model_validate(raw_requirements)
+    except ValueError as error:
+        raise ToolInputError("requirements is invalid.") from error
+
+
 async def score_candidate_against_requirements(
-    candidate_profile: CandidateProfileInputSchema,
-    requirements: RequirementsInputSchema | None = None,
+    candidate_profile: str,
+    requirements: str | None = None,
     *,
     context: ToolContext,
 ) -> ScoreCandidateOutputSchema:
-    """Score candidate fit using LLM judgment and persist the latest score."""
+    """Score candidate fit from JSON strings and persist the latest score.
+
+    Candidate JSON keys: skills, years_experience, seniority_level, domain.
+    Requirements JSON keys: required_skills, seniority_level, domain, responsibilities.
+    """
     started_at = perf_counter()
+    resolved_candidate_profile = _parse_candidate_profile(candidate_profile)
     logging.info(
         "score_candidate_against_requirements started | candidate_skills=%d has_requirements_arg=%s",
-        len(candidate_profile.skills),
+        len(resolved_candidate_profile.skills),
         requirements is not None,
     )
-    resolved_requirements = requirements
+    resolved_requirements = (
+        _parse_requirements_argument(requirements) if requirements is not None else None
+    )
     if resolved_requirements is None:
         logging.info(
             "score_candidate_against_requirements loading requirements from context.state['last_requirements']"
@@ -163,18 +217,20 @@ async def score_candidate_against_requirements(
     increment_llm_calls(context)
     try:
         score = await _score_candidate_against_requirements_llm(
-            candidate_profile,
+            resolved_candidate_profile,
             resolved_requirements,
             llm_config,
         )
     except RetryableModelOutputError:
-        logging.warning("score_candidate_against_requirements retryable model output failure")
+        logging.warning(
+            "score_candidate_against_requirements retryable model output failure"
+        )
         raise
 
     confidence = _calibrate_candidate_confidence(
         result=score,
         requirements=resolved_requirements,
-        candidate_profile=candidate_profile,
+        candidate_profile=resolved_candidate_profile,
     )
     result_payload = score.model_copy(
         update={

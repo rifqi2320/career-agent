@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from enum import StrEnum
-from uuid import UUID
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -64,10 +64,31 @@ class AgentTrace(BaseModel):
     fallbacks_triggered: int = Field(default=0, ge=0)
 
 
+class AgentStreamEvent(BaseModel):
+    """Sanitized event emitted while an ADK runner invocation progresses."""
+
+    event_type: Literal[
+        "run_started",
+        "model_response",
+        "tool_call",
+        "tool_response",
+        "state_delta",
+        "final_response",
+        "run_completed",
+        "run_failed",
+    ]
+    job_id: str = Field(min_length=1)
+    sequence: int = Field(default=0, ge=0)
+    author: str | None = None
+    tool: str | None = None
+    status: str | None = None
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
 class MatchOutput(BaseModel):
     """Final validated Part A output shape."""
 
-    job_id: UUID
+    job_id: str = Field(min_length=1)
     overall_score: int = Field(ge=0, le=100)
     confidence: ConfidenceLevel
     dimension_scores: MatchDimensionScores
@@ -81,7 +102,7 @@ class MatchOutput(BaseModel):
 class AgentRunState(BaseModel):
     """Typed snapshot of state carried across Part A tool calls."""
 
-    job_id: UUID
+    job_id: str = Field(min_length=1)
     last_requirements: dict[str, object] | None = None
     last_score: dict[str, object] | None = None
     last_prioritized_skill_gaps: dict[str, object] | None = None

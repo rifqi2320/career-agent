@@ -96,7 +96,9 @@ async def _parse_candidate_profile(
     result = await generate_structured_output(
         llm_config=llm_config,
         system_prompt=PROFILE_PARSE_SYSTEM_PROMPT,
-        user_prompt=PROFILE_PARSE_USER_PROMPT_TEMPLATE.format(profile_text=profile_text),
+        user_prompt=PROFILE_PARSE_USER_PROMPT_TEMPLATE.format(
+            profile_text=profile_text
+        ),
         schema=CandidateProfileInputSchema,
     )
     if result.is_err():
@@ -207,7 +209,7 @@ async def run() -> Path:
 
             try:
                 score_result = await score_candidate_against_requirements(
-                    candidate_profile=profile,
+                    candidate_profile=profile.model_dump_json(),
                     requirements=None,
                     context=context,
                 )
@@ -295,7 +297,9 @@ async def run() -> Path:
         comparison["per_tool_candidate_unique_variants"][tool_name] = {}
         for candidate_key, variants in candidate_map.items():
             unique_count = len(variants)
-            comparison["per_tool_candidate_unique_variants"][tool_name][candidate_key] = {
+            comparison["per_tool_candidate_unique_variants"][tool_name][
+                candidate_key
+            ] = {
                 "unique_runs": unique_count,
                 "is_consistent": unique_count == 1,
             }

@@ -94,6 +94,30 @@ def test_tool_callbacks_record_success_trace() -> None:
     assert context.state["tool_calls"][0]["latency_ms"] >= 0
 
 
+def test_after_tool_callback_does_not_mark_handled_error_as_success() -> None:
+    context = cast("Context", DummyContext())
+    tool = cast("BaseTool", SimpleNamespace(name="extract_jd_requirements"))
+
+    handle_before_tool_callback(tool, {}, context)
+    handle_tool_error_callback(tool, {}, context, RuntimeError("read failed"))
+    handle_after_tool_callback(
+        tool,
+        {},
+        context,
+        {"error": {"message": "read failed"}},
+    )
+
+    assert context.state["tool_calls"] == [
+        {
+            "tool": "extract_jd_requirements",
+            "status": "error",
+            "latency_ms": 0,
+            "error_type": "UnexpectedToolError",
+            "message": "read failed",
+        }
+    ]
+
+
 def test_before_model_callback_counts_llm_calls() -> None:
     context = cast("Context", DummyContext())
 

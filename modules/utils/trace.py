@@ -22,7 +22,16 @@ def get_state(context: Context | object) -> MutableMapping[str, object] | None:
     state = getattr(context, "state", None)
     if isinstance(state, MutableMapping):
         return state
+    if _is_state_like(state):
+        return cast("MutableMapping[str, object]", state)
     return None
+
+
+def _is_state_like(value: object) -> bool:
+    """Return true for ADK State, which is mutable but not a MutableMapping."""
+    return callable(getattr(value, "get", None)) and callable(
+        getattr(value, "__setitem__", None)
+    )
 
 
 def tool_name(tool: BaseTool | object) -> str:

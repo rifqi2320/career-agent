@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections.abc import Mapping
 from time import perf_counter
+from typing import cast
 
 from google.adk.tools import ToolContext
 from jinja2 import Template
@@ -106,18 +108,19 @@ async def extract_jd_requirements(
 ) -> ExtractJDRequirementOutputSchema:
     """Extract job requirements from a given URL or text input."""
     started_at = perf_counter()
+    resolved_url_or_text = _coerce_url_or_text(url_or_text)
     logging.info(
         "extract_jd_requirements started | input_length=%d",
-        len(url_or_text),
+        len(resolved_url_or_text),
     )
     text: str
 
     # Parse URL to text
-    url = validate_url(url_or_text)
+    url = validate_url(resolved_url_or_text)
     if ok(url):
         logging.info("extract_jd_requirements input resolved as URL")
         logging.info("extract_jd_requirements fetching URL content")
-        text_result = await read_page_content(url.value)
+        text_result = await read_page_content(url.value.geturl())
         if text_result.is_err():
             error_message = (
                 "Failed to read page content from URL input. "
@@ -139,9 +142,9 @@ async def extract_jd_requirements(
                 logging.error(error_message)
                 raise ToolExecutionError(error_message)
     else:
-        if url_or_text.strip().lower().startswith(("http://", "https://")):
+        if resolved_url_or_text.strip().lower().startswith(("http://", "https://")):
             raise ToolInputError(str(url.error), original_error=url.error)
-        text = url_or_text
+        text = resolved_url_or_text
         logging.info(
             "extract_jd_requirements input resolved as raw text | text_length=%d",
             len(text),
@@ -152,12 +155,11 @@ async def extract_jd_requirements(
         "extract_jd_requirements LLM extraction started | model=%s",
         llm_config.model_name,
     )
-    increment_llm_calls(context)
-    try:
-        requirements = await _parse_requirements_from_text_llm(text, llm_config)
-    except RetryableModelOutputError:
-        logging.warning("extract_jd_requirements retryable model output failure")
-        raise
+    requirements = await _parse_requirements_from_text_with_retry(
+        text=text,
+        llm_config=llm_config,
+        context=context,
+    )
 
     calibrated_confidence = _estimate_extraction_confidence(requirements)
     result_payload = requirements.model_copy(
@@ -178,6 +180,61 @@ async def extract_jd_requirements(
         elapsed_ms,
     )
     return result_payload
+
+
+async def _parse_requirements_from_text_with_retry(
+    *,
+    text: str,
+    llm_config: LlmConfig,
+    context: ToolContext,
+) -> ExtractJDRequirementOutputSchema:
+    """Parse JD text, retrying one malformed model output before failing."""
+    last_error: RetryableModelOutputError | None = None
+    for attempt in range(1, 3):
+        increment_llm_calls(context)
+        try:
+            return await _parse_requirements_from_text_llm(text, llm_config)
+        except RetryableModelOutputError as error:
+            last_error = error
+            logging.warning(
+                "extract_jd_requirements retryable model output failure | attempt=%d",
+                attempt,
+            )
+    if last_error is None:
+        raise RetryableModelOutputError("JD extraction failed for an unknown reason.")
+    raise last_error
+
+
+def _coerce_url_or_text(raw_url_or_text: object) -> str:
+    """Normalize LLM-supplied URL/text payloads at the tool boundary."""
+    if isinstance(raw_url_or_text, str):
+        value = raw_url_or_text.strip()
+    elif isinstance(raw_url_or_text, Mapping):
+        value = _extract_text_field(cast("Mapping[object, object]", raw_url_or_text))
+    else:
+        raise ToolInputError("url_or_text must be a string or object with text/url.")
+
+    if not value:
+        raise ToolInputError("url_or_text must not be empty.")
+    return value
+
+
+def _extract_text_field(payload: Mapping[object, object]) -> str:
+    for key in (
+        "url_or_text",
+        "url",
+        "text",
+        "job_description",
+        "job_description_text",
+        "content",
+    ):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    raise ToolInputError(
+        "url_or_text object must include a non-empty string field named "
+        "url_or_text, url, text, job_description, job_description_text, or content."
+    )
 
 
 async def _parse_requirements_from_text_llm(

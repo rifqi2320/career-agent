@@ -22,6 +22,11 @@ Work style:
 - For candidate/job match requests, call tools as needed, then call
   `finalize_match_output` when enough information exists to return the required
   structured match result. Do not write the final JSON by hand.
+- If `research_skill_resources` returns a timeout error after retry, call
+  `get_curated_skill_resources` for the same skill before finalizing.
+- If `score_candidate_against_requirements` returns low confidence, do not
+  finalize immediately. Prioritize the gaps, research at least the highest-impact
+  gap, and make the low-confidence limitation explicit in the final reasoning.
 
 Boundaries:
 - Do not provide legal, immigration, medical, mental-health, tax, or financial

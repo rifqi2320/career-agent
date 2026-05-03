@@ -38,5 +38,6 @@ def test_agent_builder_registers_required_tools() -> None:
         "score_candidate_against_requirements",
         "prioritise_skill_gaps",
         "research_skill_resources",
+        "get_curated_skill_resources",
         "finalize_match_output",
     ]

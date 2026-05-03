@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from typing import cast
-from uuid import UUID, uuid4
+from uuid import uuid4
 
 from google.adk.tools import ToolContext
 
@@ -26,7 +26,7 @@ def finalize_match_output(
     job_id: str | None = None,
     reasoning: str | None = None,
     max_learning_plan_items: int = 3,
-) -> MatchOutput:
+) -> dict[str, object]:
     """Validate and return the final career match output from prior tool results."""
     state = get_state(context)
     if state is None:
@@ -48,7 +48,7 @@ def finalize_match_output(
         gap_count=len(gap_skills),
     )
 
-    return MatchOutput(
+    output = MatchOutput(
         job_id=output_job_id,
         overall_score=_int_field(score, "overall_score"),
         confidence=ConfidenceLevel(score.get("confidence", ConfidenceLevel.UNKNOWN)),
@@ -61,23 +61,21 @@ def finalize_match_output(
         learning_plan=learning_plan,
         agent_trace=build_agent_trace(context),
     )
+    payload = output.model_dump(mode="json")
+    state["final_match_output"] = payload
+    return payload
 
 
 def _resolve_job_id(
     state: MutableMapping[str, object],
     explicit_job_id: str | None,
-) -> UUID:
+) -> str:
     raw_job_id = explicit_job_id or state.get("job_id")
-    if raw_job_id is None:
-        generated_job_id = uuid4()
-        state["job_id"] = str(generated_job_id)
-        return generated_job_id
-    try:
-        parsed = UUID(str(raw_job_id))
-    except ValueError as error:
-        raise ToolInputError("job_id must be a valid UUID.") from error
-    state["job_id"] = str(parsed)
-    return parsed
+    resolved_job_id = str(raw_job_id).strip() if raw_job_id is not None else ""
+    if not resolved_job_id:
+        resolved_job_id = str(uuid4())
+    state["job_id"] = resolved_job_id
+    return resolved_job_id
 
 
 def _build_learning_plan(

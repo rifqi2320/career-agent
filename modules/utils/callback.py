@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import MutableMapping
 from typing import Any
+from typing import cast
 
 from google.adk.agents.context import Context
 from google.adk.tools.base_tool import BaseTool
@@ -19,50 +19,57 @@ from modules.error.common import (
     ValidationError,
 )
 from modules.logging import logging
-from modules.utils.trace import append_tool_trace, begin_tool_trace, increment_llm_calls
+from modules.utils.trace import (
+    append_tool_trace,
+    begin_tool_trace,
+    get_state,
+    increment_llm_calls,
+)
 
 
 def handle_before_tool_callback(
     tool: BaseTool,
     args: dict[str, Any],
-    context: Context,
+    tool_context: Context,
 ) -> None:
     """Record the start of a tool call for runtime trace construction."""
     del args
-    begin_tool_trace(tool, context)
+    begin_tool_trace(tool, tool_context)
 
 
 def handle_after_tool_callback(
     tool: BaseTool,
     args: dict[str, Any],
-    context: Context,
+    tool_context: Context,
     tool_response: dict[str, Any],
 ) -> None:
     """Record a successful tool call for runtime trace construction."""
-    del args, tool_response
-    append_tool_trace(tool, context, status="success")
+    del args
+    if isinstance(tool_response, dict) and "error" in tool_response:
+        return
+    append_tool_trace(tool, tool_context, status="success")
 
 
-def handle_before_model_callback(context: Context, request: Any) -> None:
+def handle_before_model_callback(callback_context: Context, llm_request: Any) -> None:
     """Count model calls made through ADK orchestration."""
-    del request
-    increment_llm_calls(context)
+    del llm_request
+    increment_llm_calls(callback_context)
 
 
 def handle_tool_error_callback(
     tool: BaseTool,
     args: dict[str, Any],
-    context: Context,
+    tool_context: Context,
     error: Exception,
 ) -> dict[str, Any]:
     """Convert tool exceptions into structured payloads for the agent."""
     del args
 
     error_payload = _build_tool_error_payload(tool, error)
-    _store_tool_error(context, error_payload)
+    _store_tool_error(tool_context, error_payload)
     append_tool_trace(
         tool,
-        context,
+        tool_context,
         status="error",
         error_type=str(error_payload["error_type"]),
         message=str(error_payload["message"]),
@@ -117,13 +124,13 @@ def normalize_tool_error(error: Exception) -> ToolError:
 
 
 def _store_tool_error(context: Context, error_payload: dict[str, object]) -> None:
-    state = getattr(context, "state", None)
-    if not isinstance(state, MutableMapping):
+    state = get_state(context)
+    if state is None:
         return
 
     state["last_tool_error"] = error_payload
     raw_errors = state.get("tool_errors")
     if isinstance(raw_errors, list):
-        raw_errors.append(error_payload)
+        cast("list[dict[str, object]]", raw_errors).append(error_payload)
     else:
         state["tool_errors"] = [error_payload]

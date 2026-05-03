@@ -16,7 +16,10 @@ from modules.error.common import DependencyError
 from modules.tools.extract_jd_requirements import extract_jd_requirements
 from modules.tools.finalize_match_output import finalize_match_output
 from modules.tools.prioritise_skill_gaps import prioritise_skill_gaps
-from modules.tools.research_skill_resources import research_skill_resources
+from modules.tools.research_skill_resources import (
+    get_curated_skill_resources,
+    research_skill_resources,
+)
 from modules.tools.score_candidate_against_requirements import (
     score_candidate_against_requirements,
 )
@@ -41,6 +44,7 @@ CAREER_INTELLIGENCE_TOOLS: list[AgentTool] = [
     score_candidate_against_requirements,
     prioritise_skill_gaps,
     research_skill_resources,
+    get_curated_skill_resources,
     finalize_match_output,
 ]
 
