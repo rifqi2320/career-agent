@@ -1,0 +1,48 @@
+[project]
+name = "career-agent"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "google-adk[extensions]>=1.32.0",
+    "returns>=0.27.0",
+]
+
+[dependency-groups]
+dev = [
+    "ruff>=0.15.12",
+    "ty>=0.0.34",
+]
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+src = ["agents", "modules"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM812", # Conflicts with the formatter.
+    "CPY001", # Do not require copyright headers.
+    "D203", # Use D211: no blank line before class docstring.
+    "D213", # Use D212: multi-line summary starts on first line.
+    "ISC001", # Conflicts with the formatter.
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["modules"]
+
+[tool.ruff.format]
+docstring-code-format = true
+line-ending = "lf"
+
+[tool.ty.environment]
+python-version = "3.12"
+root = ["."]
+
+[tool.ty.rules]
+all = "error"
+
+[tool.ty.terminal]
+error-on-warning = true
