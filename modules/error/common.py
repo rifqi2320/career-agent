@@ -1,11 +1,15 @@
-"""Common domain errors."""
-
-from modules.error.base import WrappedError
+from modules.error.base import BaseError
 
 
-class UnknownOptionsError(WrappedError):
-    """Raised when unknown options are provided."""
+class IncorrectCombinationError(BaseError):
+    """Raised when an incorrect combination of options is provided."""
+
+class UnknownOptionsError(BaseError):
+    """Raised when an unrecognized option is provided."""
+
+class ValidationError(BaseError):
+    """Raised when validation of input data fails."""
 
 
-class IncorrectCombinationError(WrappedError):
-    """Raised when incompatible options are provided together."""
+class RetryableModelOutputError(BaseError):
+    """Raised when model output is malformed and a retry may succeed."""
