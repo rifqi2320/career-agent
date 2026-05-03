@@ -5,94 +5,32 @@ from collections.abc import Mapping
 from time import perf_counter
 
 from google.adk.tools import ToolContext
-from jinja2 import Template
-from pydantic import AliasChoices, BaseModel, Field
 
 from models.llm import LlmConfig
-from models.confidence import ConfidenceLevel, ConfidenceMetrics, calibrate_confidence
+from models.confidence import ConfidenceMetrics, calibrate_confidence
+from modules.candidates.schemas import CandidateProfileInputSchema
 from modules.config.llm import LlmProfile, get_llm_config
 from modules.error.common import RetryableModelOutputError, ToolInputError
 from modules.logging import logging
+from modules.matches.schemas import (
+    RequirementsInputSchema,
+    ScoreCandidateOutputSchema,
+    ScoreDimensionsSchema,
+)
+from modules.tools.prompts import (
+    SCORE_CANDIDATE_SYSTEM_PROMPT,
+    SCORE_CANDIDATE_USER_PROMPT_TEMPLATE,
+)
 from modules.utils import generate_structured_output
 from modules.utils.trace import increment_llm_calls
 
-SCORE_CANDIDATE_SYSTEM_PROMPT = """
-You are a career-fit scoring engine.
-
-Return only a JSON object, with no markdown, prose, or code fences.
-The object must match this exact schema:
-- overall_score: integer 0-100
-- dimension_scores: object with keys skills, experience, seniority_fit; each integer 0-100
-- matched_skills: list[str]
-- gap_skills: list[str]
-- confidence: "low" | "medium" | "high"
-
-Scoring guidance:
-- Compare skills semantically, not only by exact string match.
-- Treat common equivalents as related, for example:
-  - "api", "api design", and "apis"
-  - "prompt design" and "prompt engineering"
-  - "llm", "llms", and "llm applications"
-  - "rag", "rag architectures", and "retrieval augmented generation"
-  - "function calling", "function/tool calling", and "tool calling"
-- `matched_skills` must contain requirement skill names that are reasonably evidenced by the candidate profile.
-- `gap_skills` must contain requirement skill names that are not reasonably evidenced.
-- Do not invent candidate skills or job requirements.
-- Score `skills` from matched required skills and strength of evidence.
-- Score `experience` from years_experience and relevance of work history to the role.
-- Score `seniority_fit` from seniority alignment, scope, ownership, and role expectations.
-- Compute `overall_score` from the three dimensions with strongest weight on skills fit.
-- Use confidence "low" when input evidence is thin or ambiguous, "medium" for adequate evidence, and "high" for strong structured evidence.
-- Sort `matched_skills` and `gap_skills` alphabetically.
-""".strip()
-
-SCORE_CANDIDATE_USER_PROMPT_TEMPLATE = Template(
-    """
-Candidate profile (JSON):
-{{ candidate_profile }}
-
-Requirements (JSON):
-{{ requirements }}
-""".strip()
-)
-
-
-class CandidateProfileInputSchema(BaseModel):
-    skills: list[str] = Field(default_factory=list)
-    years_experience: float | None = Field(default=None, ge=0)
-    seniority_level: str = Field(
-        default="unknown",
-        validation_alias=AliasChoices("seniority_level", "seniority"),
-    )
-    domain: str = "unknown"
-
-
-class RequirementsInputSchema(BaseModel):
-    required_skills: list[str] = Field(
-        default_factory=list,
-        validation_alias=AliasChoices("required_skills", "skills"),
-    )
-    seniority_level: str = Field(
-        default="unknown",
-        validation_alias=AliasChoices("seniority_level", "seniority"),
-    )
-    domain: str = "unknown"
-    responsibilities: list[str] = Field(default_factory=list)
-
-
-class ScoreDimensionsSchema(BaseModel):
-    skills: int = Field(ge=0, le=100)
-    experience: int = Field(ge=0, le=100)
-    seniority_fit: int = Field(ge=0, le=100)
-
-
-class ScoreCandidateOutputSchema(BaseModel):
-    overall_score: int = Field(ge=0, le=100)
-    dimension_scores: ScoreDimensionsSchema
-    matched_skills: list[str] = Field(default_factory=list)
-    gap_skills: list[str] = Field(default_factory=list)
-    confidence: ConfidenceLevel
-    confidence_score: int = Field(default=0, ge=0, le=100)
+__all__ = [
+    "CandidateProfileInputSchema",
+    "RequirementsInputSchema",
+    "ScoreCandidateOutputSchema",
+    "ScoreDimensionsSchema",
+    "score_candidate_against_requirements",
+]
 
 
 def _calibrate_candidate_confidence(

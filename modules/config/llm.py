@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import lru_cache
 from pathlib import Path
 from typing import cast
 
@@ -12,7 +13,6 @@ from modules.utils.config import parse_json_text, read_text_file, validate_model
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = ROOT_DIR / "configs" / "default.json"
-CONFIG_PATH = DEFAULT_CONFIG_PATH
 
 
 def load_project_llm_config(
@@ -66,13 +66,17 @@ def load_project_llm_config(
     return validated_llm_config
 
 
-PROJECT_LLM_CONFIG = load_project_llm_config()
-
-
 def get_llm_config(*, profile: LlmProfile = LlmProfile.MAIN) -> LlmConfig:
     """Return one configured LLM profile from root project config."""
+    project_llm_config = _cached_project_llm_config()
     if profile is LlmProfile.SMALL:
-        return PROJECT_LLM_CONFIG.small
+        return project_llm_config.small
     if profile is LlmProfile.MAIN:
-        return PROJECT_LLM_CONFIG.main
+        return project_llm_config.main
     raise UnknownOptionsError(f"Unsupported LLM profile: {profile}")
+
+
+@lru_cache(maxsize=1)
+def _cached_project_llm_config() -> LlmProfilesConfig:
+    """Return the default project LLM config, loaded lazily."""
+    return load_project_llm_config()

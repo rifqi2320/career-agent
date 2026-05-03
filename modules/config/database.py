@@ -21,6 +21,3 @@ def load_database_settings() -> DatabaseSettings:
     if not url:
         raise ConfigurationError("DATABASE_URL must not be empty.")
     return DatabaseSettings(url=url)
-
-
-database_settings = load_database_settings()

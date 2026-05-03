@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import MutableMapping
 from typing import cast
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from google.adk.tools import ToolContext
 
@@ -13,10 +13,10 @@ from models.match import (
     AgentRunState,
     LearningPlanItem,
     LearningResource,
-    LearningResourceType,
     MatchDimensionScores,
     MatchOutput,
 )
+from models.resource_type import ResourceType
 from modules.error.common import ToolInputError
 from modules.utils.trace import build_agent_trace, get_state
 
@@ -48,7 +48,6 @@ def finalize_match_output(
     )
     learning_plan = _build_learning_plan(
         state=state,
-        gap_skills=gap_skills,
         max_items=max_learning_plan_items,
     )
     final_reasoning = _ensure_confidence_reasoning(
@@ -88,7 +87,7 @@ def _resolve_job_id(
     raw_job_id = explicit_job_id or state.get("job_id")
     resolved_job_id = str(raw_job_id).strip() if raw_job_id is not None else ""
     if not resolved_job_id:
-        resolved_job_id = str(uuid4())
+        raise ToolInputError("job_id is required to finalize match output.")
     try:
         UUID(resolved_job_id)
     except ValueError as error:
@@ -187,7 +186,6 @@ def _top_prioritized_skill(state: MutableMapping[str, object]) -> str | None:
 def _build_learning_plan(
     *,
     state: MutableMapping[str, object],
-    gap_skills: list[str],
     max_items: int,
 ) -> list[LearningPlanItem]:
     raw_prioritized = state.get("last_prioritized_skill_gaps")
@@ -198,10 +196,9 @@ def _build_learning_plan(
     )
     raw_items = prioritized_payload.get("prioritized_skills")
     prioritized_items = raw_items if isinstance(raw_items, list) else []
-    plan_source = prioritized_items or _fallback_prioritized_items(gap_skills)
 
     learning_plan: list[LearningPlanItem] = []
-    for raw_item in plan_source[: max(0, max_items)]:
+    for raw_item in prioritized_items[: max(0, max_items)]:
         if not isinstance(raw_item, dict):
             continue
         item = _coerce_plan_item(raw_item, state)
@@ -245,8 +242,6 @@ def _resources_for_skill(
     if isinstance(resources_by_skill, dict):
         typed_resources_by_skill = cast("dict[str, object]", resources_by_skill)
         raw_research = typed_resources_by_skill.get(skill.casefold())
-    if raw_research is None:
-        raw_research = state.get("last_resources_research")
     if not isinstance(raw_research, dict):
         return []
 
@@ -274,7 +269,7 @@ def _coerce_resource(raw_resource: dict[str, object]) -> LearningResource | None
     if not isinstance(url, str) or not url.strip():
         return None
     try:
-        parsed_type = LearningResourceType(str(resource_type))
+        parsed_type = ResourceType(str(resource_type))
     except ValueError:
         return None
     return LearningResource(
@@ -283,18 +278,6 @@ def _coerce_resource(raw_resource: dict[str, object]) -> LearningResource | None
         estimated_hours=_coerce_int(raw_resource.get("estimated_hours"), default=0),
         type=parsed_type,
     )
-
-
-def _fallback_prioritized_items(gap_skills: list[str]) -> list[dict[str, object]]:
-    return [
-        {
-            "skill": skill,
-            "priority_rank": index,
-            "estimated_match_gain_pct": 0,
-            "rationale": f"Address {skill} because it remains an unclosed role gap.",
-        }
-        for index, skill in enumerate(gap_skills, start=1)
-    ]
 
 
 def _build_reasoning(

@@ -8,7 +8,6 @@ from models.match import AgentStreamEvent
 from modules.utils.adk_events import (
     append_runtime_event,
     register_runtime_event_sink,
-    runtime_events_from_state,
     stream_events_from_adk_event,
     unregister_runtime_event_sink,
 )
@@ -65,28 +64,6 @@ def test_stream_event_for_tool_response_records_status_and_keys_only() -> None:
         "overall_score",
     ]
     assert "rag" not in str(stream_events[0].payload)
-
-
-def test_runtime_events_from_state_returns_only_new_events() -> None:
-    state: dict[str, object] = {
-        "runtime_events": [
-            AgentStreamEvent(event_type="run_started", job_id=JOB_ID).model_dump(
-                mode="json"
-            ),
-            AgentStreamEvent(
-                event_type="tool_call",
-                job_id=JOB_ID,
-                tool="query_skill_resource_db",
-                status="started",
-            ).model_dump(mode="json"),
-        ]
-    }
-
-    events, next_index = runtime_events_from_state(state, start_index=1)
-
-    assert next_index == 2
-    assert len(events) == 1
-    assert events[0].tool == "query_skill_resource_db"
 
 
 def test_append_runtime_event_writes_state_and_live_sink(

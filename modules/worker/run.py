@@ -14,9 +14,7 @@ from modules.matches.repository import (
     fail_or_retry_match_job,
 )
 from modules.task_queue.rabbitmq import consume_match_jobs, publish_match_job
-from modules.tools.score_candidate_against_requirements import (
-    CandidateProfileInputSchema,
-)
+from modules.candidates.schemas import CandidateProfileInputSchema
 
 
 async def main() -> None:

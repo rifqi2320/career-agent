@@ -2,29 +2,11 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
-
 from pydantic import BaseModel, Field
 
 from models.confidence import ConfidenceLevel
-
-
-class ResourceType(StrEnum):
-    """Supported learning-resource categories."""
-
-    COURSE = "course"
-    PROJECT = "project"
-    CERT = "cert"
-    DOC = "doc"
-
-
-class SkillResourceItemSchema(BaseModel):
-    """Selected learning resource returned to the root career agent."""
-
-    title: str
-    url: str
-    estimated_hours: int = Field(ge=0)
-    type: ResourceType
+from models.match import LearningResource as SkillResourceItemSchema
+from models.resource_type import ResourceType
 
 
 class ResearchSkillResourcesOutputSchema(BaseModel):

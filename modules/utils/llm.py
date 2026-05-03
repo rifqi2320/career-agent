@@ -18,7 +18,7 @@ from modules.error.common import DependencyError, RetryableModelOutputError
 SchemaModelT = TypeVar("SchemaModelT", bound=BaseModel)
 
 
-def _extract_text_payload(response_text: str) -> str:
+def extract_json_text_payload(response_text: str) -> str:
     """Extract raw JSON text from a model response."""
     text = response_text.strip()
     fenced_match = re.search(r"```(?:json)?\s*(.*?)\s*```", text, flags=re.DOTALL)
@@ -38,6 +38,22 @@ def _response_to_text(response_parts: list[types.Part]) -> str:
 @safe
 def _parse_json_payload(json_text: str) -> object:
     return json.loads(json_text)
+
+
+def parse_model_json_payload(response_text: str) -> object:
+    """Parse a possibly fenced model JSON response into a Python payload."""
+    json_text = extract_json_text_payload(response_text)
+    parse_result = _parse_json_payload(json_text)
+    if parse_result.is_err():
+        raise RetryableModelOutputError(
+            "Model output failed JSON parsing; retry may succeed."
+        ) from parse_result.error
+    data = parse_result.value
+    if data is None:
+        raise RetryableModelOutputError(
+            "Model output failed JSON parsing; retry may succeed."
+        )
+    return data
 
 
 @safe
@@ -91,17 +107,7 @@ async def generate_structured_output(
         raise RetryableModelOutputError("LLM response has no content parts.")
 
     raw_text = _response_to_text(final_response.content.parts)
-    json_text = _extract_text_payload(raw_text)
-    parse_result = _parse_json_payload(json_text)
-    if parse_result.is_err():
-        raise RetryableModelOutputError(
-            "Model output failed JSON parsing; retry may succeed."
-        ) from parse_result.error
-    data = parse_result.value
-    if data is None:
-        raise RetryableModelOutputError(
-            "Model output failed JSON parsing; retry may succeed."
-        )
+    data = parse_model_json_payload(raw_text)
 
     validate_result = _validate_schema_payload(data, schema)
     if validate_result.is_err():

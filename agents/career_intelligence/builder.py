@@ -11,8 +11,7 @@ from google.adk.tools.base_tool import BaseTool
 from google.adk.tools.base_toolset import BaseToolset
 
 from models.config.llm import LlmProfilesConfig
-from modules.builder.llm.builder import build_llm
-from modules.error.common import DependencyError
+from modules.builder.llm.builder import build_required_llm
 from modules.tools.extract_jd_requirements import extract_jd_requirements
 from modules.tools.finalize_match_output import finalize_match_output
 from modules.tools.prioritise_skill_gaps import prioritise_skill_gaps
@@ -67,10 +66,4 @@ def build_career_intelligence_agent(config: LlmProfilesConfig) -> Agent:
 
 def _build_agent_model(config: LlmProfilesConfig) -> BaseLlm:
     """Build the main model used by the root agent."""
-    result = build_llm(config.main)
-    if result.is_err():
-        raise DependencyError(f"Failed to build root agent model: {result.error}")
-    model = result.value
-    if model is None:
-        raise DependencyError("Failed to build root agent model: empty result")
-    return model
+    return build_required_llm(config.main, purpose="root agent")

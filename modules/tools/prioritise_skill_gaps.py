@@ -4,7 +4,6 @@ from time import perf_counter
 from typing import cast
 
 from google.adk.tools import ToolContext
-from jinja2 import Template
 from pydantic import BaseModel, Field, model_validator
 
 from models.llm import LlmConfig
@@ -16,42 +15,12 @@ from modules.error.common import (
     ValidationError,
 )
 from modules.logging import logging
+from modules.tools.prompts import (
+    PRIORITISE_SKILL_GAPS_SYSTEM_PROMPT,
+    PRIORITISE_SKILL_GAPS_USER_PROMPT_TEMPLATE,
+)
 from modules.utils import generate_structured_output
 from modules.utils.trace import increment_llm_calls
-
-PRIORITISE_SKILL_GAPS_SYSTEM_PROMPT = """
-You are a career skill-gap prioritization engine.
-
-Return only a JSON object, with no markdown, prose, or code fences.
-The object must match this exact schema:
-- prioritized_skills: list items with
-  - skill: string
-  - priority_rank: int (1..N, no ties)
-  - estimated_match_gain_pct: int (0..100)
-  - rationale: string
-
-Rules:
-- Return exactly one item per unique input gap skill.
-- Keep each `skill` value semantically aligned with the input gap skill name; do not invent new gaps.
-- Prioritize by likely improvement to job fit, considering:
-  - whether it is important in the supplied market context,
-  - whether it is a foundational prerequisite for other gaps.
-- Rank highest impact first.
-- Break close ties by practical learning leverage, then alphabetically by skill.
-- `estimated_match_gain_pct` is the estimated improvement in candidate-role match from credibly closing that gap.
-- Keep rationales concise and evidence-based.
-- Set priority ranks as consecutive integers starting at 1.
-""".strip()
-
-PRIORITISE_SKILL_GAPS_USER_PROMPT_TEMPLATE = Template(
-    """
-Gap skills:
-{{ gap_skills }}
-
-Job market context:
-{{ job_market_context }}
-""".strip()
-)
 
 
 class PrioritizedSkillSchema(BaseModel):

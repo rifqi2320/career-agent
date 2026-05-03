@@ -98,6 +98,7 @@ def test_finalize_match_output_rejects_unknown_confidence(
         "matched_skills": ["Python", "API design"],
         "gap_skills": [],
     }
+    tool_context.state["job_id"] = "11111111-1111-4111-8111-111111111111"
 
     with pytest.raises(ToolInputError, match="confidence"):
         finalize_match_output(context=tool_context)
@@ -106,6 +107,7 @@ def test_finalize_match_output_rejects_unknown_confidence(
 def test_finalize_match_output_accepts_adk_state_object() -> None:
     state = State(
         {
+            "job_id": "11111111-1111-4111-8111-111111111111",
             "last_score": {
                 "overall_score": 75,
                 "confidence": "medium",
@@ -116,7 +118,7 @@ def test_finalize_match_output_accepts_adk_state_object() -> None:
                 },
                 "matched_skills": ["Python", "API design"],
                 "gap_skills": [],
-            }
+            },
         },
         {},
     )
@@ -126,7 +128,25 @@ def test_finalize_match_output_accepts_adk_state_object() -> None:
     result = MatchOutput.model_validate(result_payload)
 
     assert result.overall_score == 75
+    assert result.job_id == "11111111-1111-4111-8111-111111111111"
     assert state["final_match_output"]["overall_score"] == 75
+
+
+def test_finalize_match_output_requires_job_id(tool_context: ToolContext) -> None:
+    tool_context.state["last_score"] = {
+        "overall_score": 77,
+        "confidence": "medium",
+        "dimension_scores": {
+            "skills": 70,
+            "experience": 80,
+            "seniority_fit": 75,
+        },
+        "matched_skills": ["python"],
+        "gap_skills": [],
+    }
+
+    with pytest.raises(ToolInputError, match="job_id"):
+        finalize_match_output(context=tool_context)
 
 
 def test_finalize_match_output_rejects_non_uuid_job_id(

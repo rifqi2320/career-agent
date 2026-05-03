@@ -10,17 +10,15 @@ from typing import Any, cast
 from google.adk.tools import ToolContext
 from pydantic import BaseModel
 
-from models.llm import LlmConfig
-from modules.config.llm import LlmProfile, get_llm_config
+from modules.candidates.profile import profile_from_text
+from modules.candidates.schemas import CandidateProfileInputSchema
 from modules.logging import logging
 from modules.tools.extract_jd_requirements import extract_jd_requirements
 from modules.tools.prioritise_skill_gaps import prioritise_skill_gaps
 from modules.tools.research_skill_resources import research_skill_resources
 from modules.tools.score_candidate_against_requirements import (
-    CandidateProfileInputSchema,
     score_candidate_against_requirements,
 )
-from modules.utils import generate_structured_output
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = PROJECT_ROOT / "tests" / "data"
@@ -30,29 +28,6 @@ RESULTS_DIR = DATA_DIR / "results"
 
 RUNS_PER_CANDIDATE = 5
 JOB_MARKET_CONTEXT = "indonesia fintech ai engineer market"
-
-PROFILE_PARSE_SYSTEM_PROMPT = """
-You extract a candidate profile into strict JSON.
-
-Return this schema only:
-- skills: list[str]
-- years_experience: number or null
-- seniority_level: string
-- domain: string
-
-Rules:
-- Extract skills explicitly evidenced in the profile text.
-- Normalize skills to lowercase snake-like short terms where possible.
-- Deduplicate and sort skills alphabetically for deterministic output.
-- years_experience should be a conservative estimate from explicit date ranges; use null if unclear.
-- If uncertain, use "unknown" for seniority_level and domain.
-- Output JSON only.
-""".strip()
-
-PROFILE_PARSE_USER_PROMPT_TEMPLATE = """
-Candidate profile text:
-{profile_text}
-""".strip()
 
 
 class SerializableToolResult(BaseModel):
@@ -87,26 +62,6 @@ def _serialize_error(error: Exception) -> SerializableToolResult:
         error=str(error),
         output=None,
     )
-
-
-async def _parse_candidate_profile(
-    profile_text: str,
-    llm_config: LlmConfig,
-) -> CandidateProfileInputSchema:
-    result = await generate_structured_output(
-        llm_config=llm_config,
-        system_prompt=PROFILE_PARSE_SYSTEM_PROMPT,
-        user_prompt=PROFILE_PARSE_USER_PROMPT_TEMPLATE.format(
-            profile_text=profile_text
-        ),
-        schema=CandidateProfileInputSchema,
-    )
-    if result.is_err():
-        raise RuntimeError(f"Failed to parse candidate profile: {result.error}")
-    parsed = result.value
-    if parsed is None:
-        raise RuntimeError("Failed to parse candidate profile: empty result.")
-    return parsed
 
 
 def _first_research_skill(
@@ -168,14 +123,10 @@ async def run() -> Path:
     if not candidate_files:
         raise RuntimeError(f"No candidate profiles found in {CANDIDATE_DIR}")
 
-    llm_config_main = get_llm_config(profile=LlmProfile.MAIN)
     parsed_profiles: dict[str, CandidateProfileInputSchema] = {}
     for candidate_file in candidate_files:
         profile_text = _load_text_with_indirection(candidate_file)
-        parsed_profiles[candidate_file.stem] = await _parse_candidate_profile(
-            profile_text=profile_text,
-            llm_config=llm_config_main,
-        )
+        parsed_profiles[candidate_file.stem] = profile_from_text(profile_text)
 
     per_tool_variants: dict[str, dict[str, set[str]]] = {
         "extract_jd_requirements": {},

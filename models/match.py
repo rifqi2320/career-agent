@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from enum import StrEnum
 from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field, field_validator
 
 from models.confidence import ConfidenceLevel
+from models.resource_type import ResourceType
 
 
 def _validate_uuid_text(value: str) -> str:
@@ -18,15 +18,6 @@ def _validate_uuid_text(value: str) -> str:
     except ValueError as error:
         raise ValueError("job_id must be a valid UUID string.") from error
     return value
-
-
-class LearningResourceType(StrEnum):
-    """Allowed learning resource categories."""
-
-    COURSE = "course"
-    PROJECT = "project"
-    CERT = "cert"
-    DOC = "doc"
 
 
 class MatchDimensionScores(BaseModel):
@@ -43,7 +34,7 @@ class LearningResource(BaseModel):
     title: str = Field(min_length=1)
     url: str = Field(min_length=1)
     estimated_hours: int = Field(ge=0)
-    type: LearningResourceType
+    type: ResourceType
 
 
 class LearningPlanItem(BaseModel):

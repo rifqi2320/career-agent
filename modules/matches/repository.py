@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from models.job import CandidateProfile, MatchJob, MatchJobStatus
 from models.match import AgentTrace, MatchOutput
-from modules.database.client import SessionLocal
+from modules.database.client import create_session
 from modules.error.common import ToolInputError
 
 
@@ -38,22 +38,12 @@ def create_candidate_profile(
         profile=profile,
         source_type=source_type,
     )
-    with SessionLocal() as session:
+    with create_session() as session:
         session.add(candidate)
         session.commit()
         session.refresh(candidate)
         session.expunge(candidate)
     return candidate
-
-
-def get_candidate_profile(candidate_id: str) -> CandidateProfile | None:
-    """Return one stored candidate profile by ID."""
-    with SessionLocal() as session:
-        candidate = session.get(CandidateProfile, candidate_id)
-        if candidate is None:
-            return None
-        session.expunge(candidate)
-        return candidate
 
 
 def create_match_jobs(
@@ -77,7 +67,7 @@ def create_match_jobs(
         )
         for job_input in job_inputs
     ]
-    with SessionLocal() as session:
+    with create_session() as session:
         if session.get(CandidateProfile, candidate_id) is None:
             raise ToolInputError("candidate_id does not exist.")
         session.add_all(jobs)
@@ -90,7 +80,7 @@ def create_match_jobs(
 
 def get_match_job(job_id: str) -> MatchJob | None:
     """Return one match job."""
-    with SessionLocal() as session:
+    with create_session() as session:
         job = session.get(MatchJob, job_id)
         if job is None:
             return None
@@ -111,7 +101,7 @@ def list_match_jobs(
     if status is not None:
         query = query.where(MatchJob.status == status.value)
     query = query.limit(limit).offset(offset)
-    with SessionLocal() as session:
+    with create_session() as session:
         jobs = list(session.scalars(query).all())
         for job in jobs:
             session.expunge(job)
@@ -124,7 +114,7 @@ def claim_match_job(job_id: str) -> ClaimedMatchJob | None:
     PostgreSQL `FOR UPDATE SKIP LOCKED` prevents two worker processes from taking the
     same pending row if duplicate RabbitMQ messages arrive.
     """
-    with SessionLocal() as session, session.begin():
+    with create_session() as session, session.begin():
         job = _select_pending_job_for_update(session, job_id)
         if job is None:
             return None
@@ -152,7 +142,7 @@ def claim_match_job(job_id: str) -> ClaimedMatchJob | None:
 def complete_match_job(*, job_id: str, output: MatchOutput) -> None:
     """Mark a processing job completed with validated agent output."""
     payload = output.model_dump(mode="json")
-    with SessionLocal() as session, session.begin():
+    with create_session() as session, session.begin():
         job = session.get(MatchJob, job_id)
         if job is None:
             raise ToolInputError("match job does not exist.")
@@ -170,7 +160,7 @@ def fail_or_retry_match_job(
     agent_trace: AgentTrace | None = None,
 ) -> bool:
     """Store failure details and return whether the job should be requeued."""
-    with SessionLocal() as session, session.begin():
+    with create_session() as session, session.begin():
         job = session.get(MatchJob, job_id)
         if job is None:
             raise ToolInputError("match job does not exist.")
@@ -187,7 +177,7 @@ def fail_or_retry_match_job(
 
 def requeue_failed_match_job(job_id: str) -> bool:
     """Move a failed job back to pending for an explicit admin retry."""
-    with SessionLocal() as session, session.begin():
+    with create_session() as session, session.begin():
         job = session.get(MatchJob, job_id)
         if job is None:
             raise ToolInputError("match job does not exist.")

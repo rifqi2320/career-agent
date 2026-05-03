@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from collections.abc import Callable
 from time import perf_counter
 
 from google.adk.tools import ToolContext
@@ -185,7 +184,7 @@ async def _research_skill_resources_agent_with_timeout_policy(
     for attempt in range(1, 3):
         increment_llm_calls(context)
         try:
-            return await _research_skill_resources_agent(
+            return await run_resource_research_agent(
                 skill_name=skill_name,
                 seniority_context=seniority_context,
                 parent_job_id=parent_job_id,
@@ -214,22 +213,6 @@ async def _research_skill_resources_agent_with_timeout_policy(
         if last_timeout is not None:
             raise last_timeout
         raise
-
-
-async def _research_skill_resources_agent(
-    *,
-    skill_name: str,
-    seniority_context: str,
-    parent_job_id: str | None = None,
-    event_sink: Callable[[AgentStreamEvent], None] | None = None,
-) -> ResearchSkillResourcesOutputSchema:
-    """Run the internal resource research agent."""
-    return await run_resource_research_agent(
-        skill_name=skill_name,
-        seniority_context=seniority_context,
-        parent_job_id=parent_job_id,
-        event_sink=event_sink,
-    )
 
 
 def _parent_job_id(context: ToolContext) -> str | None:

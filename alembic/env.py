@@ -7,12 +7,12 @@ from sqlalchemy import engine_from_config, pool
 
 from models import job as _job_models
 from models.resource import Base
-from modules.config.database import database_settings
+from modules.config.database import load_database_settings
 
 _ = _job_models
 
 config = context.config
-config.set_main_option("sqlalchemy.url", database_settings.url)
+config.set_main_option("sqlalchemy.url", load_database_settings().url)
 
 if config.config_file_name is not None:
     fileConfig(config.config_file_name)

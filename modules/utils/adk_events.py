@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, MutableMapping
+from collections.abc import Callable
 from typing import Any, cast
 
 from google.adk.events import Event
@@ -45,26 +45,6 @@ def append_runtime_event(context: object, event: AgentStreamEvent) -> None:
     sink = _RUNTIME_EVENT_SINKS.get(event.job_id)
     if sink is not None:
         sink(event)
-
-
-def runtime_events_from_state(
-    state: MutableMapping[str, object],
-    *,
-    start_index: int,
-) -> tuple[list[AgentStreamEvent], int]:
-    """Return not-yet-emitted runtime events from session state."""
-    raw_events = state.get(RUNTIME_EVENTS_STATE_KEY)
-    if not isinstance(raw_events, list):
-        return [], start_index
-
-    events: list[AgentStreamEvent] = []
-    for raw_event in raw_events[start_index:]:
-        if isinstance(raw_event, AgentStreamEvent):
-            events.append(raw_event)
-            continue
-        if isinstance(raw_event, dict):
-            events.append(AgentStreamEvent.model_validate(raw_event))
-    return events, len(raw_events)
 
 
 def stream_events_from_adk_event(

@@ -5,7 +5,6 @@ from time import perf_counter
 from typing import cast
 
 from google.adk.tools import ToolContext
-from jinja2 import Template
 from pydantic import BaseModel, Field
 from safe_result import ok
 
@@ -19,61 +18,13 @@ from modules.error.common import (
 )
 from modules.extractor.html import read_page_content
 from modules.logging import logging
+from modules.tools.prompts import (
+    EXTRACT_JD_SYSTEM_PROMPT,
+    EXTRACT_JD_USER_PROMPT_TEMPLATE,
+)
 from modules.utils import generate_structured_output
 from modules.utils.text import validate_url
 from modules.utils.trace import increment_llm_calls
-
-EXTRACT_JD_SYSTEM_PROMPT = """
-You are an information extraction engine.
-Extract job requirements from the provided job description.
-
-Output strictly a JSON object only, and nothing else (no markdown, no prose, no fences).
-The object must match this exact schema:
-- required_skills: list[str]
-- nice_to_have_skills: list[str]
-- seniority_level: str
-- domain: str
-- responsibilities: list[str]
-
-Rules:
-- If information is missing, use empty lists and "unknown" for strings.
-- Use only details present in the input text; do not infer unstated items.
-- Normalize each skill to lowercase.
-- Normalize near-equivalent wording with these mappings before deduplication:
-  - "api design", "api development", "api integration", "apis" -> "apis"
-  - "embedding models", "embeddings", "vector databases", "vector db" -> "vector database"
-  - "llms" -> "llm"
-  - "prompt design", "prompt engineering" -> "prompt engineering"
-  - "rag architecture", "rag architectures", "retrieval augmented generation" -> "rag"
-  - "function/tool calling", "function calling" -> "tool calling"
-- Do not include "tool calling" in `required_skills` unless explicitly required in the job description.
-- Sort `required_skills` and `nice_to_have_skills` alphabetically.
-- Keep only unique values in each list.
-- Ensure `nice_to_have_skills` contains no item that is already in `required_skills`.
-- Keep responsibilities concise, action-oriented, de-duplicated, sorted alphabetically, and at most 8 items.
-- Normalize seniority_level to one of: "junior", "mid-level", "senior", "lead", "unknown".
-- Use these seniority rules:
-  - explicit "junior" or 0-1 years -> "junior"
-  - explicit "mid" or 2-4 years -> "mid-level"
-  - explicit "senior" or 5+ years -> "senior"
-  - explicit "lead", "staff", "principal", or people leadership -> "lead"
-  - no explicit title or years -> "unknown"
-- Normalize domain to a short lowercase label (or "unknown" if unclear).
-- Return an object in this example shape:
-{
-  "required_skills": ["api design", "python", "rag"],
-  "nice_to_have_skills": ["langchain"],
-  "seniority_level": "mid-level",
-  "domain": "fintech",
-  "responsibilities": ["build evaluation loops", "ship ai features"]
-}
-""".strip()
-EXTRACT_JD_USER_PROMPT_TEMPLATE = Template(
-    """
-Job description text:
-{{ job_description }}
-""".strip()
-)
 
 
 class ExtractJDRequirementOutputSchema(BaseModel):
@@ -109,7 +60,7 @@ def _estimate_extraction_confidence(
 
 
 async def extract_jd_requirements(
-    url_or_text: str,
+    url_or_text: str | dict[str, object],
     *,
     context: ToolContext,
 ) -> ExtractJDRequirementOutputSchema:
@@ -245,13 +196,13 @@ def _extract_text_field(payload: Mapping[object, object]) -> str:
 
 
 async def _parse_requirements_from_text_llm(
-    text: str, LlmConfig: LlmConfig
+    text: str, llm_config: LlmConfig
 ) -> ExtractJDRequirementOutputSchema:
     """Use an LLM to parse JD text into the required structured schema."""
     system_prompt = EXTRACT_JD_SYSTEM_PROMPT
     user_prompt = EXTRACT_JD_USER_PROMPT_TEMPLATE.render(job_description=text)
     result = await generate_structured_output(
-        llm_config=LlmConfig,
+        llm_config=llm_config,
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         schema=ExtractJDRequirementOutputSchema,

@@ -12,7 +12,11 @@ from safe_result import safe
 from google.adk.models import Gemini
 
 from modules.builder.llm.const import MODEL_PROVIDER_MAP
-from modules.error.common import IncorrectCombinationError, UnknownOptionsError
+from modules.error.common import (
+    DependencyError,
+    IncorrectCombinationError,
+    UnknownOptionsError,
+)
 
 
 @safe
@@ -24,6 +28,17 @@ def build_llm(config: LlmConfig) -> BaseLlm:
         case LlmProvider.GOOGLE:
             return _build_google_llm(config).unwrap()
     raise UnknownOptionsError(f"Unrecognized provider: {config.provider!s}")
+
+
+def build_required_llm(config: LlmConfig, *, purpose: str) -> BaseLlm:
+    """Build an LLM or raise a dependency error with caller context."""
+    result = build_llm(config)
+    if result.is_err():
+        raise DependencyError(f"Failed to build {purpose} model: {result.error}")
+    model = result.value
+    if model is None:
+        raise DependencyError(f"Failed to build {purpose} model: empty result")
+    return model
 
 
 @safe

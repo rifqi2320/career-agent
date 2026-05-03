@@ -8,9 +8,7 @@ from pydantic import BaseModel, Field
 
 from models.job import MatchJobStatus
 from models.match import MatchOutput
-from modules.tools.score_candidate_against_requirements import (
-    CandidateProfileInputSchema,
-)
+from modules.candidates.schemas import CandidateProfileInputSchema
 
 
 class CandidateCreateRequest(BaseModel):

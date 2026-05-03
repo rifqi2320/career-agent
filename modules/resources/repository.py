@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from safe_result import safe
-from sqlalchemy import and_, or_, select
+from sqlalchemy import case, or_, select
 
 from models.resource import SkillResource
-from modules.database.client import SessionLocal
+from modules.database.client import create_session
 from modules.error.common import ToolInputError
 
 
@@ -25,26 +27,35 @@ def list_skill_resources(
         raise ToolInputError("limit must be greater than 0.")
 
     normalized_seniority = seniority_context.strip().casefold()
-    with SessionLocal() as session:
-        query = (
-            select(SkillResource)
-            .where(
-                or_(
-                    SkillResource.skill_name.ilike(f"%{normalized_skill}%"),
-                    SkillResource.title.ilike(f"%{normalized_skill}%"),
-                    SkillResource.abstracts.ilike(f"%{normalized_skill}%"),
+    with create_session() as session:
+        ordering: list[Any] = [
+            case(
+                (SkillResource.skill_name.ilike(normalized_skill), 0),
+                else_=1,
+            ),
+        ]
+        if normalized_seniority and normalized_seniority != "unknown":
+            ordering.append(
+                case(
+                    (
+                        SkillResource.seniority_context.ilike(
+                            f"%{normalized_seniority}%"
+                        ),
+                        0,
+                    ),
+                    else_=1,
                 )
             )
-            .limit(limit)
-        )
+        ordering.append(SkillResource.title.asc())
 
-        if normalized_seniority and normalized_seniority != "unknown":
-            query = query.order_by(
-                and_(
-                    SkillResource.seniority_context.is_not(None),
-                    SkillResource.seniority_context.ilike(f"%{normalized_seniority}%"),
-                ).desc()
+        query = select(SkillResource).where(
+            or_(
+                SkillResource.skill_name.ilike(f"%{normalized_skill}%"),
+                SkillResource.title.ilike(f"%{normalized_skill}%"),
+                SkillResource.abstracts.ilike(f"%{normalized_skill}%"),
             )
+        )
+        query = query.order_by(*ordering).limit(limit)
 
         rows = session.scalars(query).all()
     return list(rows)

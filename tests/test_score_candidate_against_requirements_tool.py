@@ -3,15 +3,15 @@ from __future__ import annotations
 from google.adk.tools import ToolContext
 import pytest
 
+from models.confidence import ConfidenceLevel
+from modules.candidates.schemas import CandidateProfileInputSchema
 from modules.error.common import ToolInputError
-from modules.tools import score_candidate_against_requirements as tool_module
-from modules.tools.score_candidate_against_requirements import (
-    CandidateProfileInputSchema,
-    ConfidenceLevel,
+from modules.matches.schemas import (
     RequirementsInputSchema,
     ScoreCandidateOutputSchema,
     ScoreDimensionsSchema,
 )
+from modules.tools import score_candidate_against_requirements as tool_module
 
 
 @pytest.mark.asyncio

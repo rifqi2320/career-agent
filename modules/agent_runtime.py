@@ -16,9 +16,7 @@ from pydantic import BaseModel, Field
 from agents.career_intelligence.agent import root_agent
 from agents.career_intelligence.builder import CAREER_INTELLIGENCE_AGENT_NAME
 from models.match import AgentRunState, AgentStreamEvent, MatchOutput
-from modules.tools.score_candidate_against_requirements import (
-    CandidateProfileInputSchema,
-)
+from modules.candidates.schemas import CandidateProfileInputSchema
 from modules.utils.adk_events import (
     match_output_from_adk_event,
     register_runtime_event_sink,
@@ -165,30 +163,6 @@ async def _produce_career_match_events(
             payload={"output": final_output.model_dump(mode="json")},
         )
     )
-
-
-async def run_career_match(
-    run_input: CareerMatchRunInput,
-    *,
-    agent: Agent = root_agent,
-    session_service: BaseSessionService | None = None,
-) -> MatchOutput:
-    """Run one career-match invocation and return the validated final output."""
-    final_output: MatchOutput | None = None
-    async for event in stream_career_match_events(
-        run_input,
-        agent=agent,
-        session_service=session_service,
-    ):
-        if event.event_type != "run_completed":
-            continue
-        output = event.payload.get("output")
-        if isinstance(output, dict):
-            final_output = MatchOutput.model_validate(output)
-
-    if final_output is None:
-        raise RuntimeError("Career match run completed without a validated output.")
-    return final_output
 
 
 def _build_user_message(run_input: CareerMatchRunInput) -> types.Content:

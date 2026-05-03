@@ -8,10 +8,8 @@ from typing import Final
 
 from pypdf import PdfReader
 
+from modules.candidates.schemas import CandidateProfileInputSchema
 from modules.error.common import ToolInputError
-from modules.tools.score_candidate_against_requirements import (
-    CandidateProfileInputSchema,
-)
 
 _COMMON_SKILLS: Final[tuple[str, ...]] = (
     "agent development kit",

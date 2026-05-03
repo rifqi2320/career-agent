@@ -76,7 +76,7 @@ async def test_research_skill_resources_success_stores_last_state(
 
     monkeypatch.setattr(
         tool_module,
-        "_research_skill_resources_agent",
+        "run_resource_research_agent",
         fake_research_agent,
     )
 
@@ -114,7 +114,7 @@ async def test_research_skill_resources_errors_when_no_resources_found(
 
     monkeypatch.setattr(
         tool_module,
-        "_research_skill_resources_agent",
+        "run_resource_research_agent",
         fake_research_agent,
     )
 
@@ -187,7 +187,7 @@ async def test_research_skill_resources_retries_timeout_then_curated_fallback(
 
     monkeypatch.setattr(
         tool_module,
-        "_research_skill_resources_agent",
+        "run_resource_research_agent",
         fake_research_agent,
     )
     monkeypatch.setattr(tool_module, "list_skill_resources", fake_list_resources)
