@@ -121,6 +121,7 @@ Add `pytest` to project dependencies before relying on the test command.
 - Keep functions short and named after domain actions.
 - Avoid global mutable state.
 - Keep imports acyclic: tools may import schemas and config, but schemas and config must not import tools or agents.
+- Keep `__init__.py` files empty by default. Only add exports there when explicitly requested.
 - Format with `ruff`, lint with `ruff check`, and type-check with `ty check`.
 - Keep `ruff` on `select = ["ALL"]` and `ty` on `all = "error"` unless there is a documented reason to narrow a specific rule.
 

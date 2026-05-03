@@ -25,3 +25,9 @@ build/
 # OS
 .DS_Store
 Thumbs.db
+
+# Runtime artifacts
+.adk/
+agents/.adk/
+agents/*/.adk/
+logs/

@@ -7,6 +7,10 @@ import sys
 from typing import cast
 
 os.environ.setdefault("CAREER_AGENT_DISABLE_FILE_LOGS", "1")
+os.environ.setdefault(
+    "DATABASE_URL",
+    "postgresql+psycopg://career@localhost:15432/career_agent",
+)
 
 from google.adk.tools import ToolContext
 import pytest
