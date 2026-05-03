@@ -1,26 +1,14 @@
 """Runtime configuration for the career intelligence agent."""
 
-import os
-from dataclasses import dataclass
+from pathlib import Path
 
-DEFAULT_MODEL = "gemini-2.5-flash"
-
-
-@dataclass(frozen=True, slots=True)
-class Settings:
-    """Validated runtime settings for the agent."""
-
-    model: str = DEFAULT_MODEL
+from models.config.llm import LlmProfilesConfig
+from modules.config.llm import DEFAULT_CONFIG_PATH, load_project_llm_config
 
 
-def load_settings() -> Settings:
-    """Load settings from environment variables."""
-    model = os.getenv("CAREER_INTELLIGENCE_MODEL", DEFAULT_MODEL).strip()
-    if not model:
-        message = "CAREER_INTELLIGENCE_MODEL must not be empty."
-        raise ValueError(message)
-
-    return Settings(model=model)
+def load_settings(config_path: Path = DEFAULT_CONFIG_PATH) -> LlmProfilesConfig:
+    """Load validated project settings for the agent."""
+    return load_project_llm_config(config_path)
 
 
 settings = load_settings()

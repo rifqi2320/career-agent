@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import os
 from pathlib import Path
 import sys
 from typing import cast
+
+os.environ.setdefault("CAREER_AGENT_DISABLE_FILE_LOGS", "1")
 
 from google.adk.tools import ToolContext
 import pytest
@@ -31,7 +34,7 @@ def tool_context() -> ToolContext:
 def sample_candidate_profile_text() -> str:
     """Load sample candidate profile text fixture."""
     return (
-        TEST_DATA_ROOT / "candidate_profile" / "sample_candidate_profile.md"
+        TEST_DATA_ROOT / "candidate_profile" / "sample_candidate_profile_1.md"
     ).read_text(encoding="utf-8")
 
 

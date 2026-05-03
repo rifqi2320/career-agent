@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 import logging
+import os
 
 _LEVEL_FILE_NAMES: dict[int, str] = {
     logging.DEBUG: "debug",
@@ -57,6 +58,14 @@ def configure_level_file_logger(
     """Configure a logger that writes each level to `logs/{level}.log`."""
     logger = logging.getLogger(name)
     if getattr(logger, "_is_level_file_logger_configured", False):
+        return logger
+
+    if os.environ.get("CAREER_AGENT_DISABLE_FILE_LOGS") == "1":
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+        logger.setLevel(level)
+        logger.propagate = False
+        setattr(logger, "_is_level_file_logger_configured", True)
         return logger
 
     destination_dir = Path(logs_dir)
