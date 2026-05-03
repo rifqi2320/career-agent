@@ -6,11 +6,17 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "google-adk[extensions]>=1.32.0",
-    "returns>=0.27.0",
+    "playwright>=1.55.0",
+    "safe-result>=4.0.3",
+    "sqlalchemy>=2.0.44",
+    "alembic>=1.18.4",
+    "psycopg[binary]>=3.2.12",
 ]
 
 [dependency-groups]
 dev = [
+    "pytest>=8.4.2",
+    "pytest-asyncio>=1.2.0",
     "ruff>=0.15.12",
     "ty>=0.0.34",
 ]
@@ -20,15 +26,6 @@ line-length = 88
 target-version = "py312"
 src = ["agents", "modules"]
 
-[tool.ruff.lint]
-select = ["ALL"]
-ignore = [
-    "COM812", # Conflicts with the formatter.
-    "CPY001", # Do not require copyright headers.
-    "D203", # Use D211: no blank line before class docstring.
-    "D213", # Use D212: multi-line summary starts on first line.
-    "ISC001", # Conflicts with the formatter.
-]
 
 [tool.ruff.lint.isort]
 known-first-party = ["modules"]
