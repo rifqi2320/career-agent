@@ -1,0 +1,14 @@
+{
+  "llm": {
+    "small": {
+      "provider": "google",
+      "model_name": "gemma-3-27b-it",
+      "provider_config": {}
+    },
+    "main": {
+      "provider": "google",
+      "model_name": "gemma-4-31b-it",
+      "provider_config": {}
+    }
+  }
+}
