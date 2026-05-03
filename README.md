@@ -13,15 +13,23 @@ streaming without building a custom ReAct loop.
 
 ```bash
 cp .env.example .env
-# Fill POSTGRES_PASSWORD and GOOGLE_API_KEY.
-# POSTGRES_USER and POSTGRES_DB have non-secret local defaults.
+# Fill POSTGRES_PASSWORD, RABBITMQ_DEFAULT_PASS, and GOOGLE_API_KEY.
+# POSTGRES_USER, POSTGRES_DB, RABBITMQ_DEFAULT_USER, and MATCH_QUEUE_NAME have
+# non-secret local defaults.
 uv sync
 docker compose up --build
 ```
 
-ADK web is served at `http://127.0.0.1:8000` with the
-`career_intelligence` app. The `adk-web` container runs Alembic migrations before
-starting the web server.
+The FastAPI app is served at `http://127.0.0.1:8080`. Docker Compose starts
+PostgreSQL, RabbitMQ, a one-shot Alembic migration container, the API container,
+and two worker containers. Workers consume durable RabbitMQ job IDs and claim
+pending rows in PostgreSQL before running the ADK agent.
+
+ADK web remains available behind a Compose profile on `http://127.0.0.1:8001`:
+
+```bash
+docker compose --profile adk up --build
+```
 
 The optional LiteLLM proxy is behind a Compose profile:
 
@@ -33,6 +41,8 @@ For local CLI runs outside Docker:
 
 ```bash
 uv run adk run agents/career_intelligence
+uv run uvicorn main:app --reload
+uv run python -m modules.worker.run
 ```
 
 ## Environment Variables
@@ -40,6 +50,11 @@ uv run adk run agents/career_intelligence
 - `DATABASE_URL`: PostgreSQL connection string for curated skill resources.
   Local Docker Compose builds it from `POSTGRES_USER`, `POSTGRES_PASSWORD`, and
   `POSTGRES_DB`; set `DATABASE_URL` directly for non-Compose runs.
+- `AMQP_URL`: RabbitMQ connection string for non-Compose API/worker runs. Local
+  Docker Compose builds it from `RABBITMQ_DEFAULT_USER` and
+  `RABBITMQ_DEFAULT_PASS`.
+- `MATCH_QUEUE_NAME`: durable RabbitMQ queue name. Defaults to
+  `career.match_jobs`.
 - `GOOGLE_API_KEY`: Google Gemini API key used by ADK when not using Vertex AI.
 - `GOOGLE_GENAI_USE_VERTEXAI`, `GOOGLE_CLOUD_PROJECT`,
   `GOOGLE_CLOUD_LOCATION`: optional Vertex AI settings for Google ADK.
@@ -79,7 +94,30 @@ Expected tool flow:
 
 `agent_trace` is built from ADK callbacks and state counters, not from model
 text. Tool argument values and response bodies are not emitted in stream
-metadata; events expose keys and status only.
+metadata; events expose keys and status only. The ADK session state is
+initialized from the typed `AgentRunState` schema and validated again before the
+final output is accepted.
+
+## Part B Async API
+
+- `POST /api/v1/candidate`: accepts JSON `{ "profile": ... }`,
+  `{ "resume_text": "..." }`, or multipart `resume_file` PDF/text fields. It
+  stores only the structured candidate profile in PostgreSQL.
+- `POST /api/v1/matches`: accepts a stored `candidate_id` and up to 10
+  `job_descriptions`, creates one pending row per JD, publishes durable RabbitMQ
+  job messages, and returns immediately with job IDs.
+- `GET /api/v1/matches/{id}`: returns `pending`, `processing`, `completed`, or
+  `failed` plus the validated output when complete.
+- `GET /api/v1/matches?limit=20&offset=0&status=pending`: lists jobs with
+  pagination and optional status filtering.
+- `POST /api/v1/matches/{id}/requeue`: admin retry for failed jobs.
+
+Workers are out-of-process containers. Each RabbitMQ message contains only a job
+ID; the worker uses `SELECT ... FOR UPDATE SKIP LOCKED` on the pending
+`match_jobs` row before processing, so two workers can consume concurrently
+without producing duplicate results. A failed run is retried up to three total
+attempts; after that the row moves to `failed` with error detail and the partial
+agent trace available so far.
 
 ## Final System Prompt
 
@@ -133,7 +171,10 @@ Boundaries:
 - `get_curated_skill_resources(skill_name, seniority_context)`: deterministic
   fallback that returns DB-curated resources when resource research times out.
 - `finalize_match_output(...)`: validates and returns the final `MatchOutput`
-  with orchestrator-populated `agent_trace`.
+  with orchestrator-populated `agent_trace`. It requires a UUID `job_id`, rejects
+  unknown confidence values, requires gap prioritization before a learning plan
+  is finalized, and blocks low-confidence finalization until the highest-priority
+  gap has researched resources.
 
 ## Confidence Heuristic
 
@@ -158,9 +199,10 @@ research confidence is based on relevance score plus retrieval completeness.
 - Invalid JD extraction output: `extract_jd_requirements` retries one malformed
   model output. If the retry also fails schema validation, the retryable error is
   surfaced to ADK for the agent/runtime to handle.
-- Low confidence score: the main agent prompt requires prioritizing gaps,
-  researching at least the highest-impact gap, and making the limitation explicit
-  before calling `finalize_match_output`.
+- Low confidence score: `finalize_match_output` enforces prioritized gaps and
+  researched resources for the highest-priority gap before accepting a
+  low-confidence final payload, then ensures the reasoning explicitly says the
+  result is low confidence.
 
 ## ADK Runtime Streaming
 
@@ -171,8 +213,12 @@ stream as the root match workflow.
 
 ## Trade-Offs
 
-- The first complete slice prioritizes Part A agent behavior over API, worker,
-  and frontend infrastructure.
+- The API/worker slice is intentionally thin: PostgreSQL is the source of truth,
+  and RabbitMQ is only the durable signal that a job should be claimed. This
+  avoids a larger orchestration framework while still supporting multiple worker
+  processes safely.
+- Candidate PDF/text ingestion extracts the minimal structured profile needed by
+  the scoring tool. Passing structured JSON remains the highest-quality path.
 - Scoring still uses LLM semantic judgment for matched/gap skills, then applies a
   deterministic confidence calibration. This is faster to build than a full
   deterministic ontology matcher but less reproducible.

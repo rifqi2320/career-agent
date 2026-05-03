@@ -1,11 +1,14 @@
 services:
-  adk-web:
+  migrate:
+    image: career-agent-app
     build:
       context: .
       dockerfile: Dockerfile
-    environment:
+    environment: &app_environment
       PYTHONPATH: /app
       DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-career}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@postgres:5432/${POSTGRES_DB:-career_agent}
+      AMQP_URL: amqp://${RABBITMQ_DEFAULT_USER:-career}:${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}@rabbitmq:5672/
+      MATCH_QUEUE_NAME: ${MATCH_QUEUE_NAME:-career.match_jobs}
       GOOGLE_API_KEY: ${GOOGLE_API_KEY:-${GEMINI_API_KEY:-}}
       GOOGLE_GENAI_USE_VERTEXAI: ${GOOGLE_GENAI_USE_VERTEXAI:-0}
       GOOGLE_CLOUD_PROJECT: ${GOOGLE_CLOUD_PROJECT:-}
@@ -15,11 +18,88 @@ services:
       GITHUB_API_BASE: ${GITHUB_API_BASE:-https://api.github.com}
       GITHUB_TIMEOUT_SECONDS: ${GITHUB_TIMEOUT_SECONDS:-10}
       RESOURCE_RESEARCH_TIMEOUT_SECONDS: ${RESOURCE_RESEARCH_TIMEOUT_SECONDS:-60}
-    ports:
-      - "8000:8000"
+      CAREER_AGENT_DISABLE_FILE_LOGS: ${CAREER_AGENT_DISABLE_FILE_LOGS:-1}
     depends_on:
       postgres:
         condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    command: ["uv", "run", "--no-sync", "alembic", "upgrade", "head"]
+    restart: "no"
+
+  api:
+    image: career-agent-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment: *app_environment
+    ports:
+      - "8080:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=3)\"",
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  worker-1:
+    image: career-agent-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment: *app_environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["uv", "run", "--no-sync", "python", "-m", "modules.worker.run"]
+    restart: unless-stopped
+
+  worker-2:
+    image: career-agent-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment: *app_environment
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["uv", "run", "--no-sync", "python", "-m", "modules.worker.run"]
+    restart: unless-stopped
+
+  adk-web:
+    image: career-agent-app
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - adk
+    environment: *app_environment
+    ports:
+      - "8001:8000"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command:
+      [
+        "uv",
+        "run",
+        "--no-sync",
+        "adk",
+        "web",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "agents",
+      ]
     restart: unless-stopped
 
   postgres:
@@ -34,6 +114,23 @@ services:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-career}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:?Set RABBITMQ_DEFAULT_PASS in .env}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -62,3 +159,4 @@ services:
 
 volumes:
   postgres_data:
+  rabbitmq_data:
