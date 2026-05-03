@@ -5,12 +5,17 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "aio-pika>=9.5.7",
+    "fastapi>=0.124.0",
     "google-adk[extensions]>=1.32.0",
     "playwright>=1.55.0",
+    "pypdf>=6.4.1",
+    "python-multipart>=0.0.20",
     "safe-result>=4.0.3",
     "sqlalchemy>=2.0.44",
     "alembic>=1.18.4",
     "psycopg[binary]>=3.2.12",
+    "uvicorn[standard]>=0.38.0",
 ]
 
 [dependency-groups]

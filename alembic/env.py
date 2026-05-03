@@ -5,8 +5,11 @@ from logging.config import fileConfig
 from alembic import context
 from sqlalchemy import engine_from_config, pool
 
+from models import job as _job_models
 from models.resource import Base
 from modules.config.database import database_settings
+
+_ = _job_models
 
 config = context.config
 config.set_main_option("sqlalchemy.url", database_settings.url)
