@@ -1,0 +1,1 @@
+tests/data/candidate_profile/sample_candidate_profile_2.md
